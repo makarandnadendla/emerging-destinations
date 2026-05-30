@@ -1,0 +1,18 @@
+[project]
+name = "emerging-destinations"
+version = "0.0.1"
+description = "Does origin-country development predict how far off the beaten path travelers go inside Georgia?"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34",
+    "duckdb>=1.5.3",
+    "osmium>=4.3.1",
+    "polars>=1.41.1",
+    "pycountry>=26.2.16",
+    "requests>=2.34.2",
+    "wbgapi>=1.0.14",
+]
+
+[tool.uv]
+package = false
