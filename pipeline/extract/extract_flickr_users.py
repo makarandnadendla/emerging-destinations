@@ -30,6 +30,17 @@ from pathlib import Path
 
 import duckdb
 import requests
+import yaml
+
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
+
+
+def active_db_path() -> Path:
+    """DB path of the active destination from config.yaml."""
+    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    return Path(cfg["destinations"][cfg["destination"]]["db_path"])
+
 
 FLICKR_API = "https://api.flickr.com/services/rest/"
 RATE_LIMIT_SLEEP = 1.0
@@ -205,12 +216,15 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Fetch Flickr people.getInfo for distinct photo users.")
-    p.add_argument("--db", type=Path, default=Path("data/flickr.duckdb"))
+    p.add_argument("--db", type=Path, default=None,
+                   help="Override DB path (default: active destination's db_path from config.yaml).")
     p.add_argument("--max-iters", type=int, default=None,
                    help="Cap users processed this run (debug).")
     p.add_argument("--reset-errors", action="store_true",
                    help="Drop status='error' rows so they re-enter the pending pool.")
     args = p.parse_args()
+    if args.db is None:
+        args.db = active_db_path()
 
     if not args.db.exists():
         sys.exit(f"ERROR: {args.db} not found. Run extract_flickr_photos.py first.")

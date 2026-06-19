@@ -1,6 +1,6 @@
 # Emerging Destinations — Project Notes
 
-Portfolio project: does origin-country development predict how far off the beaten path travelers go inside Georgia and Vietnam? (acclimation vs. status-good vs. heterogeneous hypotheses)
+Portfolio project: does origin-country development (HDI) predict how far off the beaten path travelers go *within Japan* — sticking to the canonical "Golden Route" beaten path vs. venturing to off-the-beaten-path regions? (acclimation vs. status-good vs. heterogeneous hypotheses)
 
 Current state: **visualization prototype only** — all data is mocked. The real Flickr extraction has not been run.
 
@@ -83,7 +83,7 @@ No backend, no build step, no npm. All libraries via CDN: Observable Plot 0.6, M
 | Source | Decision |
 |---|---|
 | Flickr API (`photos.search` + `people.getInfo`) | Use it. Quadtree extraction needed (250-result geo cap, 4000-result query cap). |
-| OSM POIs | Use Geofabrik PBF snapshots + osmium filter — Overpass is too flaky for batch. |
+| OSM POIs | Use Geofabrik **Japan** PBF (<https://download.geofabrik.de/asia/japan-latest.osm.pbf>, ~2.3 GB) + osmium filter — Overpass is too flaky for batch. |
 | World Bank `wbgapi` | Use for GDP/cap PPP, Logistics Performance Index, governance indicators. |
 | UNDP HDR API | Use for HDI / IHDI. |
 | WHO GHO API | Use for UHC service coverage index, sanitation. |
@@ -94,10 +94,10 @@ No backend, no build step, no npm. All libraries via CDN: Observable Plot 0.6, M
 
 ## Hypotheses the real analysis will test
 
-- **H1 acclimation:** high-HDI origin → less remote travel (comfort-seeking)
-- **H2 status-good:** high-HDI origin → more remote travel (adventure as status)
-- **H3 heterogeneous:** sign depends on destination / origin-region (this prototype mocks H3 — Vietnam shows H2 behavior, Georgia shows H1)
-- **H4 null:** origin development indicators don't meaningfully predict remoteness exposure
+- **H1 acclimation:** high-HDI origin → less remote travel within Japan (sticks to the Golden Route, comfort-seeking)
+- **H2 status-good:** high-HDI origin → more remote travel within Japan (off-path as status/adventure)
+- **H3 heterogeneous:** sign depends on origin-region (this prototype mocks H3 — long-haul Western origins trend one way, regional East-Asian origins another)
+- **H4 null:** origin development indicators don't meaningfully predict within-Japan remoteness exposure
 
 ---
 

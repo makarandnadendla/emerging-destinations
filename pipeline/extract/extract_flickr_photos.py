@@ -33,17 +33,49 @@ from pathlib import Path
 
 import duckdb
 import requests
+import yaml
 
-# Georgia: WGS84 bbox (min_lon, min_lat, max_lon, max_lat)
-GEORGIA_BBOX = (40.00, 41.05, 46.75, 43.60)
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
 
 FLICKR_API = "https://api.flickr.com/services/rest/"
+# Flickr-mechanics defaults; overridden from config.yaml `flickr:` block in main().
 PER_PAGE = 500
 SUBDIVIDE_THRESHOLD = 3500   # under Flickr's 4000-per-query cap
-MIN_BBOX_SIDE_DEG = 0.005    # ~500 m; smaller -> split by time instead
+MIN_BBOX_SIDE_DEG = 0.005    # ~500 m; at/below this, split by time instead
 RATE_LIMIT_SLEEP = 1.0       # seconds between API calls
 RETRY_BACKOFF = [1, 2, 4, 8, 16]
 HTTP_TIMEOUT = 30
+# Termination guards for the quadtree. A hyper-dense single point (one venue or a
+# bulk uploader with thousands of near-identical lat/lon+timestamp photos) can sit
+# above SUBDIVIDE_THRESHOLD no matter how finely we split, because Flickr stops
+# honoring sub-tile filters and pins `total` near its ~4000 retrieval wall. Without
+# a guard the bbox shrinks below MIN_BBOX_SIDE_DEG and time-bisection collapses to a
+# zero/negative span ("days=-0"), looping forever. So: stop subdividing once the
+# bbox is minimal AND the time span is too small to split, and instead CAP the tile
+# (grab Flickr's retrievable max and move on).
+MIN_TIME_SPAN_SEC = 7 * 86400   # don't time-bisect spans <= 7 days
+MAX_PAGES = 8                   # Flickr serves ~4000 results max (8 * 500); never page past
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict:
+    """Return the active destination's params merged with shared/flickr params."""
+    with open(path, "r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    active = cfg["destination"]
+    dest = cfg["destinations"][active]
+    flickr = cfg.get("flickr", {})
+    y0, y1 = cfg["years"]
+    return {
+        "active": active,
+        "name": dest["name"],
+        "bbox": tuple(dest["bbox"]),
+        "db_path": dest["db_path"],
+        "years": range(y0, y1 + 1),
+        "per_page": flickr.get("per_page", PER_PAGE),
+        "subdivide_threshold": flickr.get("subdivide_threshold", SUBDIVIDE_THRESHOLD),
+        "min_bbox_side_deg": flickr.get("min_bbox_side_deg", MIN_BBOX_SIDE_DEG),
+        "rate_limit_sleep": flickr.get("rate_limit_sleep", RATE_LIMIT_SLEEP),
+    }
 
 
 def load_dotenv(env_path: Path) -> None:
@@ -253,6 +285,42 @@ def fetch_one_frontier(con: duckdb.DuckDBPyConnection) -> dict | None:
     return dict(zip(cols, row))
 
 
+def can_subdivide(f: dict) -> bool:
+    """True if this tile can be meaningfully split further: either the bbox is
+    still larger than the minimum side (spatial split), or the time span is large
+    enough to bisect without collapsing (time split). When both are exhausted the
+    tile is terminal and must be capped, not subdivided."""
+    w = f["max_lon"] - f["min_lon"]
+    h = f["max_lat"] - f["min_lat"]
+    if w > MIN_BBOX_SIDE_DEG or h > MIN_BBOX_SIDE_DEG:
+        return True
+    return (f["max_ts"] - f["min_ts"]) > MIN_TIME_SPAN_SEC
+
+
+def drain_pages(con, api_key, f, first_data, pages, label, max_pages):
+    """Insert page 1 (already fetched) then pages 2..min(pages, max_pages).
+    Returns (inserted, completed, pages_fetched)."""
+    inserted = insert_photos(con, first_data["photos"], f["id"])
+    last_page = min(pages, max_pages)
+    for page in range(2, last_page + 1):
+        time.sleep(RATE_LIMIT_SLEEP + random.uniform(0, 0.2))
+        try:
+            page_data = flickr_search(
+                api_key,
+                (f["min_lon"], f["min_lat"], f["max_lon"], f["max_lat"]),
+                f["min_ts"], f["max_ts"], page=page,
+            )
+        except Exception as e:
+            print(f"  {label}  page {page} ERROR: {e}")
+            con.execute(
+                "UPDATE frontier SET status='error', last_error=?, pages_done=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                [str(e)[:500], page - 1, f["id"]],
+            )
+            return inserted, False, page - 1
+        inserted += insert_photos(con, page_data["photos"], f["id"])
+    return inserted, True, last_page
+
+
 def process(con: duckdb.DuckDBPyConnection, api_key: str, max_iters: int | None) -> None:
     iters = 0
     while True:
@@ -305,44 +373,33 @@ def process(con: duckdb.DuckDBPyConnection, api_key: str, max_iters: int | None)
             time.sleep(RATE_LIMIT_SLEEP)
             continue
 
-        if total >= SUBDIVIDE_THRESHOLD:
+        if total >= SUBDIVIDE_THRESHOLD and can_subdivide(f):
             n_children = subdivide(con, f)
             print(f"  {label}  total={total} -> subdivide ({n_children} children)")
             iters += 1
             time.sleep(RATE_LIMIT_SLEEP)
             continue
 
-        # Paginate this leaf tile
-        inserted = insert_photos(con, data["photos"], f["id"])
-        completed = True
-        for page in range(2, pages + 1):
-            time.sleep(RATE_LIMIT_SLEEP + random.uniform(0, 0.2))
-            try:
-                page_data = flickr_search(
-                    api_key,
-                    (f["min_lon"], f["min_lat"], f["max_lon"], f["max_lat"]),
-                    f["min_ts"], f["max_ts"], page=page,
-                )
-            except Exception as e:
-                print(f"  {label}  page {page} ERROR: {e}")
-                con.execute(
-                    "UPDATE frontier SET status='error', last_error=?, pages_done=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                    [str(e)[:500], page - 1, f["id"]],
-                )
-                completed = False
-                break
-            inserted += insert_photos(con, page_data["photos"], f["id"])
-
+        # Either a normal leaf (total < threshold) or a hyper-dense tile that can't
+        # be split further (bbox minimal AND time span too small). Both paginate up
+        # to Flickr's retrievable wall; the dense case is marked 'capped' so it is
+        # never revisited and the data loss is logged rather than silent.
+        capped = total >= SUBDIVIDE_THRESHOLD
+        inserted, completed, fetched = drain_pages(con, api_key, f, data, pages, label, MAX_PAGES)
         if completed:
+            status = "capped" if capped else "done"
             con.execute(
                 """
-                UPDATE frontier SET status='done', total_returned=?, pages_done=?,
+                UPDATE frontier SET status=?, total_returned=?, pages_done=?,
                                     updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
                 """,
-                [total, pages, f["id"]],
+                [status, total, fetched, f["id"]],
             )
-            print(f"  {label}  total={total} pages={pages} inserted={inserted}")
+            if capped:
+                print(f"  {label}  total={total} CAPPED at Flickr wall — kept ~{inserted} (pages={fetched})")
+            else:
+                print(f"  {label}  total={total} pages={fetched} inserted={inserted}")
 
         iters += 1
         time.sleep(RATE_LIMIT_SLEEP)
@@ -356,22 +413,36 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str) -> None:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Quadtree Flickr extractor for Georgia 2012-2019.")
-    p.add_argument("--db", type=Path, default=Path("data/flickr.duckdb"))
+    global PER_PAGE, SUBDIVIDE_THRESHOLD, MIN_BBOX_SIDE_DEG, RATE_LIMIT_SLEEP
+
+    p = argparse.ArgumentParser(description="Quadtree Flickr extractor (destination from config.yaml).")
+    p.add_argument("--db", type=Path, default=None,
+                   help="Override DB path (default: active destination's db_path from config.yaml).")
     p.add_argument("--max-iters", type=int, default=None,
                    help="Cap number of frontier tiles processed in this run (debug).")
     p.add_argument("--reset-frontier", action="store_true",
                    help="Reset 'in_progress' or 'error' rows to 'pending' before running.")
     args = p.parse_args()
 
-    args.db.parent.mkdir(parents=True, exist_ok=True)
+    cfg = load_config()
+    PER_PAGE = cfg["per_page"]
+    SUBDIVIDE_THRESHOLD = cfg["subdivide_threshold"]
+    MIN_BBOX_SIDE_DEG = cfg["min_bbox_side_deg"]
+    RATE_LIMIT_SLEEP = cfg["rate_limit_sleep"]
+
+    db_path = args.db if args.db is not None else Path(cfg["db_path"])
+    bbox = cfg["bbox"]
+    years = cfg["years"]
+    print(f"-> destination={cfg['name']}  bbox={bbox}  years={years.start}-{years.stop - 1}  db={db_path}")
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
     api_key = os.environ.get("FLICKR_API_KEY")
     if not api_key:
         sys.exit("ERROR: FLICKR_API_KEY not set (expected in .env)")
 
-    con = duckdb.connect(str(args.db))
+    con = duckdb.connect(str(db_path))
     init_db(con)
 
     if args.reset_frontier:
@@ -381,7 +452,7 @@ def main() -> int:
         ).fetchall()
         print(f"-> reset {len(n)} frontier rows to 'pending'")
 
-    seed_frontier(con, GEORGIA_BBOX, range(2012, 2020))
+    seed_frontier(con, bbox, years)
 
     status_snapshot(con, "start")
     try:
