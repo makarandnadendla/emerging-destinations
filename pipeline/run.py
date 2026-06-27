@@ -141,6 +141,27 @@ def bootstrap(con: duckdb.DuckDBPyConnection, cfg: dict) -> None:
     con.execute("SET VARIABLE min_photos = ?;", [cfg["min_photos"]])
     con.execute("SET VARIABLE min_cells = ?;", [cfg["min_cells"]])
 
+    # The optional global photo pull (extract_global_photos.py) writes
+    # raw.user_global_status. Expose it as a stable `user_modal` view so
+    # 01_users.sql can always LEFT JOIN it — falling back to an empty view when
+    # the pull hasn't been run, so the transform never breaks on a missing table.
+    has_modal = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_catalog = 'raw' AND table_name = 'user_global_status'
+    """).fetchone()[0]
+    if has_modal:
+        con.execute("""
+            CREATE OR REPLACE TEMP VIEW user_modal AS
+            SELECT user_id, modal_iso3, n_countries
+            FROM raw.user_global_status WHERE status = 'ok'
+        """)
+    else:
+        con.execute("""
+            CREATE OR REPLACE TEMP VIEW user_modal AS
+            SELECT NULL::VARCHAR AS user_id, NULL::VARCHAR AS modal_iso3,
+                   NULL::INTEGER AS n_countries WHERE FALSE
+        """)
+
 
 def run_transform(cfg: dict, only: list[str] | None) -> int:
     sql_files = sorted(SQL_DIR.glob("*.sql"))
