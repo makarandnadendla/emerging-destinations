@@ -267,10 +267,11 @@ def upsert_user(con, user_id: str, status: str, counts: dict, capped: bool,
         """, [user_id, n_coords, capped, eff, (str(err)[:500] if err else None), now])
 
 
-def status_snapshot(con: duckdb.DuckDBPyConnection, label: str) -> None:
+def status_snapshot(con: duckdb.DuckDBPyConnection, label: str, dest_iso3: str) -> None:
     rows = con.execute(
         "SELECT status, COUNT(*) FROM user_global_status GROUP BY status ORDER BY status"
     ).fetchall()
+    # Raw agreement: modal over ALL photos, as stored in user_global_status.
     n_agree = con.execute("""
         SELECT COUNT(*) FROM users u
         JOIN user_geocodes g ON g.location_raw = u.location_raw
@@ -278,8 +279,34 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str) -> None:
         WHERE s.status='ok' AND g.country_iso3 = s.modal_iso3
     """).fetchone()[0]
     n_ok = con.execute("SELECT COUNT(*) FROM user_global_status WHERE status='ok'").fetchone()[0]
-    rate = f"{n_agree}/{n_ok} ({n_agree/n_ok:.1%})" if n_ok else "n/a"
-    print(f"[{label}] by_status={dict(rows)}  stated==modal agreement={rate}")
+    raw = f"{n_agree}/{n_ok} ({n_agree/n_ok:.1%})" if n_ok else "n/a"
+    # Destination-excluded agreement: the analysis definition (01_users.sql) —
+    # the destination's tally is dropped from the home vote unless the user's
+    # stated home IS the destination. Recomputed here from user_country_counts;
+    # denominator = users with a stated country AND a non-null effective modal.
+    n_agree_x, n_modal_x = con.execute("""
+        WITH modal AS (
+            SELECT user_id,
+                   arg_max(country_iso3, photo_count)               AS modal_all,
+                   arg_max(country_iso3, photo_count)
+                       FILTER (WHERE country_iso3 <> ?)             AS modal_excl
+            FROM user_country_counts
+            GROUP BY user_id
+        ),
+        eff AS (
+            SELECT g.country_iso3 AS stated,
+                   CASE WHEN g.country_iso3 = ? THEN m.modal_all
+                        ELSE m.modal_excl END AS modal
+            FROM modal m
+            JOIN users u ON u.user_id = m.user_id
+            JOIN user_geocodes g ON g.location_raw = u.location_raw
+            WHERE g.country_iso3 IS NOT NULL
+        )
+        SELECT COUNT(*) FILTER (WHERE stated = modal), COUNT(modal) FROM eff
+    """, [dest_iso3, dest_iso3]).fetchone()
+    excl = f"{n_agree_x}/{n_modal_x} ({n_agree_x/n_modal_x:.1%})" if n_modal_x else "n/a"
+    print(f"[{label}] by_status={dict(rows)}  stated==modal agreement: "
+          f"raw={raw}  dest-excluded={excl}")
 
 
 def main() -> int:
@@ -320,7 +347,7 @@ def main() -> int:
     pending = get_pending(con, cfg["dest_iso3"], cfg["min_photos"])
     if not pending:
         print("-> no pending users (modal pull already covers the cohort superset)")
-        status_snapshot(con, "done")
+        status_snapshot(con, "done", cfg["dest_iso3"])
         return 0
 
     print(f"-> {len(pending):,} users pending (cohort superset; "
@@ -328,7 +355,7 @@ def main() -> int:
     print("-> building offline reverse-geocoder (one-time k-d tree) ...")
     geo = rg.RGeocoder(mode=1, verbose=False)
     iso_map = iso2_to_iso3_map()
-    status_snapshot(con, "start")
+    status_snapshot(con, "start", cfg["dest_iso3"])
 
     sleep = cfg["rate_limit_sleep"]
     processed = n_ok = n_nogeo = n_nf = n_err = 0
@@ -362,7 +389,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n-> interrupted; partial state persisted, re-run to resume")
 
-    status_snapshot(con, "end")
+    status_snapshot(con, "end", cfg["dest_iso3"])
     con.close()
     return 0
 

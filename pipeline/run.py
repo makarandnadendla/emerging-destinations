@@ -142,24 +142,26 @@ def bootstrap(con: duckdb.DuckDBPyConnection, cfg: dict) -> None:
     con.execute("SET VARIABLE min_cells = ?;", [cfg["min_cells"]])
 
     # The optional global photo pull (extract_global_photos.py) writes
-    # raw.user_global_status. Expose it as a stable `user_modal` view so
-    # 01_users.sql can always LEFT JOIN it — falling back to an empty view when
-    # the pull hasn't been run, so the transform never breaks on a missing table.
+    # raw.user_country_counts (per-user worldwide country tally). Expose it as a
+    # stable `user_modal_counts` view so 01_users.sql can always aggregate it —
+    # falling back to an empty view when the pull hasn't been run, so the
+    # transform never breaks on a missing table. The modal itself is computed in
+    # 01_users.sql (destination-excluded unless stated home IS the destination).
     has_modal = con.execute("""
         SELECT COUNT(*) FROM information_schema.tables
-        WHERE table_catalog = 'raw' AND table_name = 'user_global_status'
+        WHERE table_catalog = 'raw' AND table_name = 'user_country_counts'
     """).fetchone()[0]
     if has_modal:
         con.execute("""
-            CREATE OR REPLACE TEMP VIEW user_modal AS
-            SELECT user_id, modal_iso3, n_countries
-            FROM raw.user_global_status WHERE status = 'ok'
+            CREATE OR REPLACE TEMP VIEW user_modal_counts AS
+            SELECT user_id, country_iso3, photo_count
+            FROM raw.user_country_counts
         """)
     else:
         con.execute("""
-            CREATE OR REPLACE TEMP VIEW user_modal AS
-            SELECT NULL::VARCHAR AS user_id, NULL::VARCHAR AS modal_iso3,
-                   NULL::INTEGER AS n_countries WHERE FALSE
+            CREATE OR REPLACE TEMP VIEW user_modal_counts AS
+            SELECT NULL::VARCHAR AS user_id, NULL::VARCHAR AS country_iso3,
+                   NULL::INTEGER AS photo_count WHERE FALSE
         """)
 
 

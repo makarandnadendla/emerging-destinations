@@ -69,6 +69,15 @@ SELECT
     o.y_mean_remoteness,
     n.y_neg_hour,                 -- negative-control outcome (SPEC §147)
     n.trip_month_modal,           -- seasonal control for the negative-control regression
+    -- Home-resolution cross-check (SPEC §97): origin_iso above is the STATED home;
+    -- agree_flag = (stated == worldwide-modal home), where the modal excludes
+    -- destination photos unless stated home IS the destination (see 01_users.sql).
+    -- Stage A uses agree_flag to drop / separately analyze conflicts rather than
+    -- trusting the pooled treatment label. NULL agree_flag = no usable modal
+    -- (no worldwide geo, or only-destination photos for a non-resident).
+    u.modal_country_iso,
+    u.agree_flag,
+    u.n_countries_visited,
     f.hdi,
     f.gdp_pc_ppp,
     f.lpi,
@@ -77,6 +86,7 @@ SELECT
 FROM user_destination ud
 JOIN outcome o ON o.user_id_hash = ud.user_id_hash
 LEFT JOIN neg n ON n.user_id_hash = ud.user_id_hash
+LEFT JOIN users u ON u.user_id_hash = ud.user_id_hash
 LEFT JOIN filled f
        ON f.country_iso3 = ud.origin_iso
       AND f.year         = ud.trip_year;
