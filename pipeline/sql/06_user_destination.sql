@@ -18,7 +18,8 @@ WITH japan_photos AS (
     WHERE p.taken_ts IS NOT NULL
 ),
 in_window AS (
-    SELECT * FROM japan_photos WHERE yr BETWEEN 2012 AND 2019
+    SELECT * FROM japan_photos
+    WHERE yr BETWEEN getvariable('year_min') AND getvariable('year_max')
 ),
 agg AS (
     SELECT

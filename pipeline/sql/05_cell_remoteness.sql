@@ -1,11 +1,14 @@
 -- 05_cell_remoteness — remoteness as inverse POI density.
 --
 --   remoteness_raw  = -ln(1 + poi_count)
---       0 POIs       ->  0      (least negative = most remote)
+--       few POIs     -> least negative = most remote
 --       many POIs    -> large negative (densest = least remote)
 --   remoteness_norm = min-max scaled to [0,1] across the destination,
 --       1 = most remote (fewest POIs), 0 = least remote (densest cell)
---   is_zero_poi_cell = TRUE when the cell has no POIs at all
+--   is_zero_poi_cell = TRUE when the cell has no POIs. Constitutively FALSE
+--       under the current universe (03 keeps only POI-bearing cells, so
+--       poi_count >= 1 and remoteness_norm = 1 means ONE POI, not zero);
+--       kept for schema stability if the universe ever widens.
 CREATE OR REPLACE TABLE cell_remoteness AS
 WITH r AS (
     SELECT

@@ -48,6 +48,10 @@ h3_res: 6
 min_photos: 5
 min_cells: 2
 
+# Public-export suppression floor: origins with fewer cohort users than this
+# are dropped from agg_origin (an n=1 "mean" is that user's exact outcome).
+min_origin_users: 5
+
 # Flickr extraction mechanics (API-level, not destination-specific).
 flickr:
   per_page: 500

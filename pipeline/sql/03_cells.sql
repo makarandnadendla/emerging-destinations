@@ -31,7 +31,14 @@ SELECT
     h3_cell_to_lng(h3_r6)       AS centroid_lon,
     h3_cell_area(h3_r6, 'km^2') AS area_km2
 FROM poi_cells
-WHERE NOT (                                   -- drop Busan (KR) bleed cells
-        h3_cell_to_lat(h3_r6) BETWEEN 34.9 AND 35.4
-    AND h3_cell_to_lng(h3_r6) BETWEEN 128.8 AND 129.3
+-- Busan (KR) bleed exclusion — JAPAN ONLY. The box is gated on dest_iso3 so
+-- other destinations (georgia today, or a future South Korea build where this
+-- box IS Busan) are untouched. Margins are half a cell (~0.05 deg) wider than
+-- the bleed cells so a re-extraction or --h3-res change can't shift a cell
+-- CENTER just past the edge and sneak the leak back in; Japanese Tsushima
+-- (<= 34.72N) stays safely south of the box.
+WHERE NOT (
+        getvariable('dest_iso3') = 'JPN'
+    AND h3_cell_to_lat(h3_r6) BETWEEN 34.85 AND 35.45
+    AND h3_cell_to_lng(h3_r6) BETWEEN 128.75 AND 129.35
 );

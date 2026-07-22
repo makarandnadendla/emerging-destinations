@@ -37,32 +37,39 @@ geo AS (
     FROM raw.users u
     LEFT JOIN raw.user_geocodes g ON g.location_raw = u.location_raw
 ),
+-- One ranked scan yields both modal variants + the country count.
+-- Deterministic tie-break: highest photo_count wins; ties resolve to the
+-- alphabetically-first ISO3 (rank order is preserved under the FILTER, so
+-- the destination-excluded pick is the best-ranked non-destination country).
+-- The table is one row per (user, country), so COUNT(*) = distinct countries.
 modal AS (
     SELECT
         user_id,
-        arg_max(country_iso3, photo_count)               AS modal_all,   -- incl. destination
-        arg_max(country_iso3, photo_count)
-            FILTER (WHERE country_iso3 <> getvariable('dest_iso3'))
-                                                         AS modal_excl,  -- destination removed
-        COUNT(DISTINCT country_iso3)                     AS n_countries
-    FROM user_modal_counts
+        arg_min(country_iso3, rk)                                  AS modal_all,
+        arg_min(country_iso3, rk)
+            FILTER (WHERE country_iso3 <> getvariable('dest_iso3')) AS modal_excl,
+        COUNT(*)                                                   AS n_countries
+    FROM (
+        SELECT user_id, country_iso3,
+               row_number() OVER (PARTITION BY user_id
+                                  ORDER BY photo_count DESC, country_iso3) AS rk
+        FROM user_modal_counts
+    )
     GROUP BY user_id
 )
+-- Residents keep destination photos in the vote (concordant home evidence);
+-- everyone else gets the destination-excluded modal. agree_flag reuses the
+-- modal_country_iso alias; SQL `=` is already NULL when either side is NULL,
+-- which is exactly the "missing" semantics we want.
 SELECT
     sha256(pa.user_id)        AS user_id_hash,
     pa.user_id               AS user_id,            -- internal only; never exported to repo
     geo.stated_country_iso   AS stated_country_iso,
     CASE WHEN geo.stated_country_iso = getvariable('dest_iso3')
-         THEN m.modal_all                            -- resident: destination photos are concordant
-         ELSE m.modal_excl                           -- tourist: exclude destination-skew
+         THEN m.modal_all ELSE m.modal_excl
     END                      AS modal_country_iso,
-    CASE WHEN geo.stated_country_iso IS NOT NULL
-          AND (CASE WHEN geo.stated_country_iso = getvariable('dest_iso3')
-                    THEN m.modal_all ELSE m.modal_excl END) IS NOT NULL
-         THEN geo.stated_country_iso =
-              (CASE WHEN geo.stated_country_iso = getvariable('dest_iso3')
-                    THEN m.modal_all ELSE m.modal_excl END)
-    END                      AS agree_flag,         -- stated vs modal (NULL when either is missing)
+    geo.stated_country_iso = modal_country_iso
+                             AS agree_flag,         -- NULL when either side is missing
     pa.total_photos          AS total_photos,
     pa.n_cells               AS n_cells,
     m.n_countries            AS n_countries_visited -- distinct worldwide photo countries (incl. dest)

@@ -21,11 +21,13 @@ State lives in the destination's raw DuckDB (data/<dest>.duckdb):
   user_global_status  (user_id PK, n_geo_photos, n_countries, modal_iso3, ...)
   user_country_counts (user_id, country_iso3, photo_count)
 
-Target users = the cohort superset: a resolved non-destination stated country AND
-at least `min_photos` photos inside the destination (so we don't spend API calls
-on users who can never enter the cohort). Re-running consumes only NOT-yet-pulled
-users; soft failures (deleted users) record status='not_found' so they aren't
-retried forever. `--reset-errors` re-queues status='error'.
+Target users = anyone with a resolved stated country AND at least `min_photos`
+photos inside the destination. Stated-DESTINATION residents are included: the
+resident branch of the modal rule (destination photos count as home evidence
+when stated home IS the destination) needs their tallies too. Re-running
+consumes only NOT-yet-pulled users; soft failures (deleted users) record
+status='not_found' so they aren't retried forever. `--reset-errors` re-queues
+status='error'.
 
 **Run AFTER extract_flickr_photos.py + extract_flickr_users.py + geocode_user_locations.py.**
 DuckDB allows one writer at a time, so don't run it alongside another extractor.
@@ -42,12 +44,15 @@ import os
 import random
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
 import requests
 import yaml
+
+from _common import FatalApiError, load_dotenv
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
 
@@ -72,17 +77,6 @@ def load_config() -> dict:
         "rate_limit_sleep": flickr.get("rate_limit_sleep", RATE_LIMIT_SLEEP),
         "min_photos": cfg["min_photos"],
     }
-
-
-def load_dotenv(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def init_tables(con: duckdb.DuckDBPyConnection) -> None:
@@ -113,9 +107,13 @@ def iso2_to_iso3_map() -> dict:
     return {c.alpha_2: c.alpha_3 for c in pycountry.countries}
 
 
-def get_pending(con: duckdb.DuckDBPyConnection, dest_iso3: str, min_photos: int) -> list[str]:
-    """Cohort superset not yet pulled: resolved non-destination stated country AND
-    >= min_photos photos inside the destination."""
+def get_pending(con: duckdb.DuckDBPyConnection, min_photos: int) -> list[str]:
+    """Users not yet pulled: resolved stated country AND >= min_photos photos in
+    the destination. Stated-DESTINATION users are deliberately INCLUDED — the
+    resident branch of the modal-home rule (destination photos count as home
+    evidence when stated home IS the destination) needs their worldwide tallies
+    too; excluding them would leave residents' modal/agree_flag structurally
+    NULL and the concordance branch dead."""
     rows = con.execute("""
         WITH jp AS (SELECT user_id, COUNT(*) AS n FROM photos GROUP BY user_id)
         SELECT DISTINCT u.user_id
@@ -124,11 +122,10 @@ def get_pending(con: duckdb.DuckDBPyConnection, dest_iso3: str, min_photos: int)
         JOIN jp ON jp.user_id = u.user_id
         LEFT JOIN user_global_status s ON s.user_id = u.user_id
         WHERE g.country_iso3 IS NOT NULL
-          AND g.country_iso3 <> ?
           AND jp.n >= ?
           AND s.user_id IS NULL
         ORDER BY u.user_id
-    """, [dest_iso3, min_photos]).fetchall()
+    """, [min_photos]).fetchall()
     return [r[0] for r in rows]
 
 
@@ -149,7 +146,7 @@ def flickr_user_geo(api_key: str, user_id: str, page: int, per_page: int
         "media": "photos",
     }
     last_err: str | None = None
-    for backoff in RETRY_BACKOFF:
+    for attempt, backoff in enumerate(RETRY_BACKOFF):
         try:
             r = requests.get(FLICKR_API, params=params, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
@@ -161,7 +158,9 @@ def flickr_user_geo(api_key: str, user_id: str, page: int, per_page: int
                 if code in (1, 2, 5):       # user not found / unknown / deleted
                     return "not_found", data.get("message", "")
                 if code == 100:
-                    raise RuntimeError(f"invalid API key: {data.get('message')}")
+                    # FatalApiError is not in the except tuple below: it must
+                    # escape the retry loop and abort the whole run.
+                    raise FatalApiError(f"invalid API key: {data.get('message')}")
                 last_err = f"stat=fail code={code} msg={data.get('message')}"
             else:
                 last_err = f"unexpected stat: {data.get('stat')}"
@@ -172,7 +171,8 @@ def flickr_user_geo(api_key: str, user_id: str, page: int, per_page: int
             last_err = str(e)
         except (requests.RequestException, RuntimeError, ValueError) as e:
             last_err = str(e)
-        time.sleep(backoff)
+        if attempt < len(RETRY_BACKOFF) - 1:   # no point sleeping after the last try
+            time.sleep(backoff)
     return "error", (last_err or "unknown error")[:500]
 
 
@@ -191,16 +191,17 @@ def coords_from_payload(data: dict) -> list[tuple[float, float]]:
 
 
 def fetch_user_coords(api_key: str, user_id: str, per_page: int, sleep: float
-                      ) -> tuple[str, list[tuple[float, float]], bool]:
-    """Returns (status, coords, capped). status: ok|no_geo|not_found|error."""
+                      ) -> tuple[str, list[tuple[float, float]], bool, str | None]:
+    """Returns (status, coords, capped, err). status: ok|no_geo|not_found|error.
+    err carries the API's failure message so it lands in last_error verbatim."""
     st, data = flickr_user_geo(api_key, user_id, 1, per_page)
     if st != "ok":
-        return st, [], False
+        return st, [], False, str(data)[:500] if data else None
     photos = data.get("photos", {})
     total = int(photos.get("total", 0) or 0)
     pages = int(photos.get("pages", 0) or 0)
     if total == 0:
-        return "no_geo", [], False
+        return "no_geo", [], False, None
     coords = coords_from_payload(data)
     capped = pages > MAX_PAGES
     last_page = min(pages, MAX_PAGES)
@@ -210,7 +211,7 @@ def fetch_user_coords(api_key: str, user_id: str, per_page: int, sleep: float
         if st2 != "ok":
             break  # partial pages are fine for a modal; keep what we have
         coords.extend(coords_from_payload(data2))
-    return "ok", coords, capped
+    return "ok", coords, capped, None
 
 
 def tally_countries(geo, iso_map: dict, coords: list[tuple[float, float]]) -> dict:
@@ -218,53 +219,46 @@ def tally_countries(geo, iso_map: dict, coords: list[tuple[float, float]]) -> di
     if not coords:
         return {}
     results = geo.query(coords)  # list of dicts with 'cc' (ISO-2)
-    counts: dict[str, int] = {}
-    for r in results:
-        iso3 = iso_map.get((r.get("cc") or "").strip().upper())
-        if iso3:
-            counts[iso3] = counts.get(iso3, 0) + 1
-    return counts
+    isos = (iso_map.get((r.get("cc") or "").strip().upper()) for r in results)
+    return dict(Counter(i for i in isos if i))
 
 
 def upsert_user(con, user_id: str, status: str, counts: dict, capped: bool,
                 n_coords: int, err: str | None = None) -> None:
+    """Persist one user's pull. Branches only compute the values; a single
+    INSERT ... ON CONFLICT covers both the ok and failure shapes."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     con.execute("DELETE FROM user_country_counts WHERE user_id = ?", [user_id])
     if status == "ok" and counts:
-        rows = [(user_id, iso3, n) for iso3, n in counts.items()]
         con.executemany(
             "INSERT INTO user_country_counts (user_id, country_iso3, photo_count) VALUES (?, ?, ?)",
-            rows,
+            [(user_id, iso3, n) for iso3, n in counts.items()],
         )
-        modal_iso3 = max(counts, key=counts.get)
+        # Deterministic tie-break to match 01_users.sql: highest count wins,
+        # ties resolve to the alphabetically-first ISO3.
+        modal_iso3 = min(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
         modal_count = counts[modal_iso3]
         geocoded = sum(counts.values())
-        con.execute("""
-            INSERT INTO user_global_status
-                (user_id, n_geo_photos, n_countries, modal_iso3, modal_count,
-                 modal_share, capped, status, last_error, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', NULL, ?)
-            ON CONFLICT (user_id) DO UPDATE SET
-                n_geo_photos=excluded.n_geo_photos, n_countries=excluded.n_countries,
-                modal_iso3=excluded.modal_iso3, modal_count=excluded.modal_count,
-                modal_share=excluded.modal_share, capped=excluded.capped,
-                status='ok', last_error=NULL, fetched_at=excluded.fetched_at
-        """, [user_id, n_coords, len(counts), modal_iso3, modal_count,
-              modal_count / geocoded if geocoded else None, capped, now])
+        modal_share = modal_count / geocoded if geocoded else None
+        n_countries, eff, err = len(counts), "ok", None
     else:
         # no_geo (no geotagged photos), not_found, error, or ok-but-unmappable
+        modal_iso3 = modal_count = modal_share = None
+        n_countries = 0
         eff = "no_geo" if status == "ok" else status
-        con.execute("""
-            INSERT INTO user_global_status
-                (user_id, n_geo_photos, n_countries, modal_iso3, modal_count,
-                 modal_share, capped, status, last_error, fetched_at)
-            VALUES (?, ?, 0, NULL, NULL, NULL, ?, ?, ?, ?)
-            ON CONFLICT (user_id) DO UPDATE SET
-                n_geo_photos=excluded.n_geo_photos, n_countries=0,
-                modal_iso3=NULL, modal_count=NULL, modal_share=NULL,
-                capped=excluded.capped, status=excluded.status,
-                last_error=excluded.last_error, fetched_at=excluded.fetched_at
-        """, [user_id, n_coords, capped, eff, (str(err)[:500] if err else None), now])
+    con.execute("""
+        INSERT INTO user_global_status
+            (user_id, n_geo_photos, n_countries, modal_iso3, modal_count,
+             modal_share, capped, status, last_error, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (user_id) DO UPDATE SET
+            n_geo_photos=excluded.n_geo_photos, n_countries=excluded.n_countries,
+            modal_iso3=excluded.modal_iso3, modal_count=excluded.modal_count,
+            modal_share=excluded.modal_share, capped=excluded.capped,
+            status=excluded.status, last_error=excluded.last_error,
+            fetched_at=excluded.fetched_at
+    """, [user_id, n_coords, n_countries, modal_iso3, modal_count,
+          modal_share, capped, eff, (str(err)[:500] if err else None), now])
 
 
 def status_snapshot(con: duckdb.DuckDBPyConnection, label: str, dest_iso3: str) -> None:
@@ -282,24 +276,28 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str, dest_iso3: str) 
     raw = f"{n_agree}/{n_ok} ({n_agree/n_ok:.1%})" if n_ok else "n/a"
     # Destination-excluded agreement: the analysis definition (01_users.sql) —
     # the destination's tally is dropped from the home vote unless the user's
-    # stated home IS the destination. Recomputed here from user_country_counts;
+    # stated home IS the destination. Recomputed here from user_country_counts
+    # with the SAME deterministic tie-break as 01 (count DESC, then ISO3);
     # denominator = users with a stated country AND a non-null effective modal.
     n_agree_x, n_modal_x = con.execute("""
         WITH modal AS (
             SELECT user_id,
-                   arg_max(country_iso3, photo_count)               AS modal_all,
-                   arg_max(country_iso3, photo_count)
-                       FILTER (WHERE country_iso3 <> ?)             AS modal_excl
-            FROM user_country_counts
+                   arg_min(country_iso3, rk)                     AS modal_all,
+                   arg_min(country_iso3, rk)
+                       FILTER (WHERE country_iso3 <> ?)          AS modal_excl
+            FROM (SELECT user_id, country_iso3,
+                         row_number() OVER (PARTITION BY user_id
+                                            ORDER BY photo_count DESC, country_iso3) AS rk
+                  FROM user_country_counts)
             GROUP BY user_id
         ),
         eff AS (
             SELECT g.country_iso3 AS stated,
                    CASE WHEN g.country_iso3 = ? THEN m.modal_all
                         ELSE m.modal_excl END AS modal
-            FROM modal m
-            JOIN users u ON u.user_id = m.user_id
+            FROM users u
             JOIN user_geocodes g ON g.location_raw = u.location_raw
+            JOIN modal m ON m.user_id = u.user_id
             WHERE g.country_iso3 IS NOT NULL
         )
         SELECT COUNT(*) FILTER (WHERE stated = modal), COUNT(modal) FROM eff
@@ -344,14 +342,14 @@ def main() -> int:
         n = con.execute("DELETE FROM user_global_status WHERE status='error' RETURNING user_id").fetchall()
         print(f"-> cleared {len(n)} errored users (will re-pull)")
 
-    pending = get_pending(con, cfg["dest_iso3"], cfg["min_photos"])
+    pending = get_pending(con, cfg["min_photos"])
     if not pending:
-        print("-> no pending users (modal pull already covers the cohort superset)")
+        print("-> no pending users (modal pull already covers all eligible users)")
         status_snapshot(con, "done", cfg["dest_iso3"])
         return 0
 
-    print(f"-> {len(pending):,} users pending (cohort superset; "
-          f"resolved non-{cfg['dest_iso3']} stated + >= {cfg['min_photos']} dest photos)")
+    print(f"-> {len(pending):,} users pending (resolved stated country incl. "
+          f"{cfg['dest_iso3']} residents + >= {cfg['min_photos']} dest photos)")
     print("-> building offline reverse-geocoder (one-time k-d tree) ...")
     geo = rg.RGeocoder(mode=1, verbose=False)
     iso_map = iso2_to_iso3_map()
@@ -364,7 +362,7 @@ def main() -> int:
             if args.max_iters is not None and processed >= args.max_iters:
                 print(f"-> reached --max-iters={args.max_iters}, stopping")
                 break
-            status, coords, capped = fetch_user_coords(api_key, uid, cfg["per_page"], sleep)
+            status, coords, capped, err = fetch_user_coords(api_key, uid, cfg["per_page"], sleep)
             if status == "ok":
                 counts = tally_countries(geo, iso_map, coords)
                 upsert_user(con, uid, "ok" if counts else "no_geo", counts, capped, len(coords))
@@ -376,10 +374,10 @@ def main() -> int:
                 upsert_user(con, uid, "no_geo", {}, capped, 0)
                 n_nogeo += 1
             elif status == "not_found":
-                upsert_user(con, uid, "not_found", {}, False, 0, err=str(coords))
+                upsert_user(con, uid, "not_found", {}, False, 0, err=err)
                 n_nf += 1
             else:
-                upsert_user(con, uid, "error", {}, False, 0, err=str(coords))
+                upsert_user(con, uid, "error", {}, False, 0, err=err)
                 n_err += 1
             processed += 1
             if processed % PROGRESS_EVERY == 0:

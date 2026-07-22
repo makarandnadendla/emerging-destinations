@@ -1,8 +1,9 @@
 -- 04_poi_per_cell — POI counts per H3 r6 cell: total + by category.
 --
--- LEFT JOIN from cells so every in-universe cell gets a row; photo-only cells
--- with no POIs come through with poi_count = 0 (these become the most-remote
--- cells downstream).
+-- LEFT JOIN from cells so every in-universe cell gets a row. NOTE: because the
+-- cell universe (03) is defined as POI-bearing cells, poi_count >= 1 always in
+-- the current design; the LEFT JOIN only matters if 03 ever widens the
+-- universe (e.g. admin-polygon clip adding photo-only wilderness cells).
 CREATE OR REPLACE TABLE poi_per_cell AS
 WITH binned AS (
     SELECT

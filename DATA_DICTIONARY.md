@@ -27,7 +27,7 @@ documents every table and column in build order.
 | `user_id_hash` | VARCHAR | SHA-256 of the raw Flickr user id; anonymized join key used everywhere downstream. |
 | `user_id` | VARCHAR | Raw Flickr user id. **Internal only — never exported to the public repo.** |
 | `stated_country_iso` | VARCHAR | ISO 3166-1 alpha-3 of the user's stated profile location (Nominatim-geocoded). Primary origin signal. |
-| `modal_country_iso` | VARCHAR | ISO-3 of the most-frequent country across the user's *worldwide* geotagged photos (global pull). Behavioral cross-check; `NULL` if not pulled. |
+| `modal_country_iso` | VARCHAR | ISO-3 modal home from the user's *worldwide* geotagged photos (global pull), with **destination photos excluded from the vote unless the user's stated home IS the destination** (a resident's destination photos are concordant home evidence). Ties break deterministically (highest count, then alphabetical ISO-3). `NULL` if not pulled, or if a non-resident's only geotagged photos are destination photos (no independent home signal). |
 | `agree_flag` | BOOLEAN | `TRUE` when `stated_country_iso = modal_country_iso`; `NULL` when either side is missing. |
 | `total_photos` | BIGINT | Count of the user's geotagged photos inside the destination bbox. |
 | `n_cells` | BIGINT | Distinct H3 r6 cells those photos fall in. |

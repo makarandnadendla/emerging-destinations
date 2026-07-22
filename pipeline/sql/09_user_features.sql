@@ -17,18 +17,31 @@
 -- confounders + month and expects ~0 — a non-null coefficient flags residual
 -- confounding the back-door set didn't close.
 CREATE OR REPLACE TABLE user_features AS
-WITH filled AS (
+-- The carry-forward runs over a DENSE country x year spine, not just the rows
+-- present in indicators_panel: if a country has no panel row at all in some
+-- year (publication gap), the spine still materializes that year so the join
+-- on trip_year finds the carried-forward value instead of silently missing.
+WITH spine AS (
+    SELECT c.country_iso3, y.year
+    FROM (SELECT DISTINCT country_iso3 FROM indicators_panel) c
+    CROSS JOIN (SELECT unnest(generate_series(
+                    getvariable('year_min')::INT,
+                    getvariable('year_max')::INT)) AS year) y
+),
+filled AS (
     SELECT
-        country_iso3,
-        year,
-        last_value(hdi            IGNORE NULLS) OVER w AS hdi,
-        last_value(gdp_pc_ppp     IGNORE NULLS) OVER w AS gdp_pc_ppp,
-        last_value(lpi            IGNORE NULLS) OVER w AS lpi,
-        last_value(uhc            IGNORE NULLS) OVER w AS uhc,
-        last_value(wgi_gov_effect IGNORE NULLS) OVER w AS wgi_gov_effect
-    FROM indicators_panel
+        s.country_iso3,
+        s.year,
+        last_value(ip.hdi            IGNORE NULLS) OVER w AS hdi,
+        last_value(ip.gdp_pc_ppp     IGNORE NULLS) OVER w AS gdp_pc_ppp,
+        last_value(ip.lpi            IGNORE NULLS) OVER w AS lpi,
+        last_value(ip.uhc            IGNORE NULLS) OVER w AS uhc,
+        last_value(ip.wgi_gov_effect IGNORE NULLS) OVER w AS wgi_gov_effect
+    FROM spine s
+    LEFT JOIN indicators_panel ip
+           ON ip.country_iso3 = s.country_iso3 AND ip.year = s.year
     WINDOW w AS (
-        PARTITION BY country_iso3 ORDER BY year
+        PARTITION BY s.country_iso3 ORDER BY s.year
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     )
 ),
@@ -43,22 +56,40 @@ outcome AS (
 ),
 -- Negative-control placebo outcome: circular mean in-Japan photo hour + modal month.
 -- Same Japan clip + window as the cohort (06_user_destination) so it is defined on
--- exactly the analysis trip, not the user's whole Flickr history.
-neg AS (
-    SELECT
-        p.user_id_hash,
-        MOD(
-            atan2(AVG(sin(2 * pi() * p.taken_hour / 24.0)),
-                  AVG(cos(2 * pi() * p.taken_hour / 24.0))) / (2 * pi()) * 24.0 + 24.0,
-            24.0
-        )                                                 AS y_neg_hour,
-        mode(p.taken_month)                               AS trip_month_modal,
-        COUNT(*)                                          AS n_neg_photos
+-- exactly the analysis trip, not the user's whole Flickr history. Restricted to
+-- cohort users up front (no point aggregating trig over the non-cohort 90%).
+-- taken_hour is NULL for granularity>0 photos (fake midnight, see 02) and AVG
+-- skips NULLs, so fake timestamps never contaminate the placebo.
+neg_photos AS (
+    SELECT p.user_id_hash, p.taken_hour, p.taken_month
     FROM photos p
+    INNER JOIN user_destination ud ON ud.user_id_hash = p.user_id_hash
     INNER JOIN cells c ON c.h3_r6 = p.h3_r6              -- clip to Japan POI cells
     WHERE p.taken_ts IS NOT NULL
-      AND EXTRACT(year FROM p.taken_ts) BETWEEN 2012 AND 2019
-    GROUP BY p.user_id_hash
+      AND EXTRACT(year FROM p.taken_ts)
+          BETWEEN getvariable('year_min') AND getvariable('year_max')
+),
+-- Deterministic modal month (mode() has unspecified tie behavior): most photos
+-- wins, ties resolve to the earliest month, so the seasonal control reproduces
+-- exactly across rebuilds.
+neg_month AS (
+    SELECT user_id_hash, taken_month AS trip_month_modal
+    FROM (SELECT user_id_hash, taken_month, COUNT(*) AS n
+          FROM neg_photos WHERE taken_month IS NOT NULL
+          GROUP BY user_id_hash, taken_month)
+    QUALIFY row_number() OVER (PARTITION BY user_id_hash
+                               ORDER BY n DESC, taken_month) = 1
+),
+neg AS (
+    SELECT
+        user_id_hash,
+        MOD(
+            atan2(AVG(sin(2 * pi() * taken_hour / 24.0)),
+                  AVG(cos(2 * pi() * taken_hour / 24.0))) / (2 * pi()) * 24.0 + 24.0,
+            24.0
+        )                                                 AS y_neg_hour
+    FROM neg_photos
+    GROUP BY user_id_hash
 )
 SELECT
     ud.user_id_hash,
@@ -68,7 +99,7 @@ SELECT
     o.n_cells,
     o.y_mean_remoteness,
     n.y_neg_hour,                 -- negative-control outcome (SPEC §147)
-    n.trip_month_modal,           -- seasonal control for the negative-control regression
+    nm.trip_month_modal,          -- seasonal control for the negative-control regression
     -- Home-resolution cross-check (SPEC §97): origin_iso above is the STATED home;
     -- agree_flag = (stated == worldwide-modal home), where the modal excludes
     -- destination photos unless stated home IS the destination (see 01_users.sql).
@@ -86,6 +117,7 @@ SELECT
 FROM user_destination ud
 JOIN outcome o ON o.user_id_hash = ud.user_id_hash
 LEFT JOIN neg n ON n.user_id_hash = ud.user_id_hash
+LEFT JOIN neg_month nm ON nm.user_id_hash = ud.user_id_hash
 LEFT JOIN users u ON u.user_id_hash = ud.user_id_hash
 LEFT JOIN filled f
        ON f.country_iso3 = ud.origin_iso

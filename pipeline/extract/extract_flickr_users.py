@@ -30,34 +30,14 @@ from pathlib import Path
 
 import duckdb
 import requests
-import yaml
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
-
-
-def active_db_path() -> Path:
-    """DB path of the active destination from config.yaml."""
-    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
-        cfg = yaml.safe_load(fh)
-    return Path(cfg["destinations"][cfg["destination"]]["db_path"])
-
+from _common import FatalApiError, active_db_path, load_dotenv
 
 FLICKR_API = "https://api.flickr.com/services/rest/"
 RATE_LIMIT_SLEEP = 1.0
 RETRY_BACKOFF = [1, 2, 4, 8, 16]
 HTTP_TIMEOUT = 30
 PROGRESS_EVERY = 25
-
-
-def load_dotenv(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def init_users_table(con: duckdb.DuckDBPyConnection) -> None:
@@ -126,7 +106,7 @@ def flickr_get_info(api_key: str, user_id: str) -> tuple[str, dict | str | None]
         "nojsoncallback": 1,
     }
     last_err: Exception | str | None = None
-    for backoff in RETRY_BACKOFF:
+    for attempt, backoff in enumerate(RETRY_BACKOFF):
         try:
             r = requests.get(FLICKR_API, params=params, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
@@ -139,12 +119,12 @@ def flickr_get_info(api_key: str, user_id: str) -> tuple[str, dict | str | None]
                 if code in (1, 5):
                     return "not_found", data.get("message", "")
                 if code == 100:
-                    raise RuntimeError(f"invalid API key: {data.get('message')}")
-                # other failure codes: backoff and retry
+                    # Must escape the retry loop (FatalApiError is not caught below).
+                    raise FatalApiError(f"invalid API key: {data.get('message')}")
+                # other failure codes: fall through to the shared backoff sleep
                 last_err = f"stat=fail code={code} msg={data.get('message')}"
-                time.sleep(backoff)
-                continue
-            last_err = f"unexpected stat: {data.get('stat')}"
+            else:
+                last_err = f"unexpected stat: {data.get('stat')}"
         except requests.HTTPError as e:
             # 4xx are usually permanent for that user
             sc = e.response.status_code if e.response is not None else None
@@ -153,7 +133,8 @@ def flickr_get_info(api_key: str, user_id: str) -> tuple[str, dict | str | None]
             last_err = str(e)
         except (requests.RequestException, RuntimeError, ValueError) as e:
             last_err = str(e)
-        time.sleep(backoff)
+        if attempt < len(RETRY_BACKOFF) - 1:   # no point sleeping after the last try
+            time.sleep(backoff)
     return "error", (last_err or "unknown error")[:500] if isinstance(last_err, str) else str(last_err)[:500]
 
 

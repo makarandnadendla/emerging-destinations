@@ -22,6 +22,9 @@ LEFT JOIN (
 ) v ON v.h3_r6 = cr.h3_r6;
 
 -- Origin-country rollup: cohort size + mean outcome + mean HDI. No user rows.
+-- Small-cell suppression (config: min_origin_users): origins with too few
+-- cohort users are dropped — an n=1 "mean" IS that one identifiable user's
+-- exact outcome, which would put row-level data in the public aggregates.json.
 CREATE OR REPLACE TABLE agg_origin AS
 SELECT
     origin_iso,
@@ -30,7 +33,8 @@ SELECT
     AVG(hdi)               AS mean_hdi,
     AVG(gdp_pc_ppp)        AS mean_gdp_pc_ppp
 FROM user_features
-GROUP BY origin_iso;
+GROUP BY origin_iso
+HAVING COUNT(*) >= getvariable('min_origin_users');
 
 -- One-row headline summary.
 CREATE OR REPLACE TABLE agg_summary AS

@@ -38,7 +38,7 @@ This spec replaces the mock with a real pipeline:
 | Grid | **H3 r6** (~36 km² hexes) |
 | Outcome | **Inverse OSM POI density per cell**, normalized 0–1 |
 | User-home rule | **Stated Flickr profile location wins**; modal-country flags audit |
-| Tourist filter | Drop users whose modal-photo-country = destination (residents only) |
+| Tourist filter | Drop users whose STATED profile country = destination (consistent with "stated location wins"; the destination-excluded modal cannot flag residents by construction) |
 | Inclusion threshold | ≥5 photos AND ≥2 distinct hex cells in destination |
 | Origin predictor | **HDI primary**; GDP/cap PPP, LPI, composite as robustness |
 | HDI vintage | **Year-matched** (panel join on trip year) |
@@ -115,7 +115,7 @@ Numbered SQL files in `pipeline/sql/` (`01_users.sql`, `02_photos.sql`, etc.) ex
 | 03 | `cells` | One row per H3 r6 cell that intersects Japan. `h3_r6`, `centroid_lat`, `centroid_lon`, `area_km2_in_country` |
 | 04 | `poi_per_cell` | `h3_r6`, `poi_count`, `poi_count_by_category{}` |
 | 05 | `cell_remoteness` | `h3_r6`, `remoteness_raw = -log(1 + poi_count)`, `remoteness_norm` ∈ [0,1] (min–max scaled on the destination), `is_zero_poi_cell` flag |
-| 06 | `user_destination` | Filter to tourists: `users.modal_country_iso ≠ 'JP'`, ≥5 photos & ≥2 cells in Japan. Origin country + year-of-first-photo carried forward |
+| 06 | `user_destination` | Filter to tourists: `users.stated_country_iso ≠ 'JPN'` (stated location wins; modal is the audit signal, and the destination-excluded modal can never equal the destination for non-residents), ≥5 photos & ≥2 cells in Japan. Origin country + year-of-first-photo carried forward |
 | 07 | `user_cell_visits` | One row per (user × h3_r6). Photo count, first/last visit ts. Inner join to `cell_remoteness` |
 | 08 | `indicators_panel` | Country × year × indicator (HDI, GDP_PC_PPP, LPI, UHC, WGI_GOVE). Year-matched to user's first-photo year in destination |
 | 09 | `user_features` | Join `user_destination` to `indicators_panel` on (origin_iso, trip_year). One row per analysis user |

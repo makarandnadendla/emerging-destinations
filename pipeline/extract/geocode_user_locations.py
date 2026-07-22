@@ -29,16 +29,8 @@ from pathlib import Path
 import duckdb
 import pycountry
 import requests
-import yaml
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
-
-
-def active_db_path() -> Path:
-    """DB path of the active destination from config.yaml."""
-    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
-        cfg = yaml.safe_load(fh)
-    return Path(cfg["destinations"][cfg["destination"]]["db_path"])
+from _common import active_db_path, load_dotenv
 
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
@@ -49,17 +41,6 @@ PROGRESS_EVERY = 25
 
 # Required by Nominatim ToS. Email is the project owner's contact.
 USER_AGENT = "emerging-destinations/0.0.1 (mailto:nn.chetta@gmail.com)"
-
-
-def load_dotenv(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def init_geocodes_table(con: duckdb.DuckDBPyConnection) -> None:

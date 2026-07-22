@@ -53,6 +53,8 @@ import polars as pl
 import requests
 from python_calamine import CalamineWorkbook
 
+from _common import load_dotenv
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -77,17 +79,6 @@ PREFS = (
 ).split()
 PCODE = {n: f"{i + 1:02d}000" for i, n in enumerate(PREFS)}
 _FWID = str.maketrans("０１２３４５６７８９", "0123456789")  # full-width -> half-width digits
-
-
-def load_dotenv(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def app_id() -> str:
@@ -362,7 +353,9 @@ def cmd_download_excel() -> int:
         if not url:
             print(f"   {yr}: no annual XLS found")
             continue
-        content = requests.get(url, timeout=180).content
+        resp = requests.get(url, timeout=180)
+        resp.raise_for_status()      # don't write an HTTP error page to disk as the workbook
+        content = resp.content
         ext = ".xlsx" if content[:4].hex().startswith("504b") else ".xls"
         fp = B1_XLS_DIR / f"b1_{yr}{ext}"
         fp.write_bytes(content)

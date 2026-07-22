@@ -41,8 +41,8 @@ headline estimate):
         df, treatment="hdi", neg_outcome="y_neg_hour",
         confounders=["gdp_pc_ppp", "log_photos", "dist_capital_km"],
         categorical=["origin_region"], month_col="trip_month_modal",
-        cluster_col="origin_iso", stated_col="stated_country_iso",
-        modal_col="modal_country_iso",
+        cluster_col="origin_iso", stated_col="origin_iso",   # user_features exposes the
+        modal_col="modal_country_iso",                       # STATED home as origin_iso
         headline=(beta, ci_low, ci_high), outcome_sd=df["y_mean_remoteness"].std(),
         out_dir="analysis/outputs")
 
@@ -53,11 +53,10 @@ Self-test on synthetic data (no warehouse needed):
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import warnings
-from dataclasses import dataclass, asdict
-from pathlib import Path
+from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
 warnings.filterwarnings("ignore")
@@ -65,12 +64,12 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 
-# Reuse the report row type so design refutations slot into the same report shape
-# as the DoWhy battery, whether this is run as a script or imported as a package.
+# Reuse the report row type AND the report renderers so the design refutations
+# and the DoWhy battery render as one system (works run-as-script or imported).
 try:
-    from analysis.refute import RefuterResult
+    from analysis.refute import RefuterResult, print_report, write_report
 except ImportError:  # running as `python analysis/sensitivity.py`
-    from refute import RefuterResult
+    from refute import RefuterResult, print_report, write_report
 
 
 # --------------------------------------------------------------------------- #
@@ -78,8 +77,6 @@ except ImportError:  # running as `python analysis/sensitivity.py`
 # --------------------------------------------------------------------------- #
 @dataclass
 class SensitivityConfig:
-    random_seed: int = 20240608
-
     # A. Negative control: PASS when the placebo coefficient's 95% CI covers 0
     #    (the DAG predicts no HDI -> hour effect). We additionally flag if the
     #    standardized magnitude is large even when non-significant.
@@ -104,10 +101,16 @@ def negative_control(df: pd.DataFrame, treatment: str, neg_outcome: str,
                      confounders: list[str], categorical: Optional[list[str]] = None,
                      month_col: Optional[str] = None,
                      cluster_col: Optional[str] = None,
-                     config: SensitivityConfig = SensitivityConfig()) -> RefuterResult:
+                     config: Optional[SensitivityConfig] = None) -> RefuterResult:
     """Estimate the treatment coefficient on the PLACEBO outcome under the SAME
     adjustment set as the headline, conditioned on month-of-year. The DAG predicts
-    ~0; a CI that excludes 0 reveals residual confounding / selection."""
+    ~0; a CI that excludes 0 reveals residual confounding / selection.
+
+    Note: y_neg_hour is a circular quantity treated linearly here. Acceptable
+    because Japan tourism hours cluster mid-day (mass near the 0/24 seam is
+    negligible); if the y_neg_hour histogram ever shows seam mass, switch to
+    regressing the sin/cos components instead."""
+    config = config or SensitivityConfig()
     cats = list(categorical or [])
     if month_col:
         cats = cats + [month_col]
@@ -153,11 +156,12 @@ def _evalue_from_rr(rr: float) -> float:
 
 def evalue(point: float, ci_low: float, ci_high: float, outcome_sd: float,
            contrast: float = 1.0,
-           config: SensitivityConfig = SensitivityConfig()) -> RefuterResult:
+           config: Optional[SensitivityConfig] = None) -> RefuterResult:
     """E-value for a continuous-outcome effect. The effect is standardized
     (d = effect*contrast / sd) and mapped to an approximate RR via exp(0.91*d),
     then converted to the E-value. `contrast` lets you ask about a meaningful HDI
     change (e.g. 0.1 of HDI) instead of one full unit."""
+    config = config or SensitivityConfig()
     if not outcome_sd or not math.isfinite(outcome_sd):
         outcome_sd = 1.0
     k = config.evalue_smd_to_rr
@@ -167,25 +171,35 @@ def evalue(point: float, ci_low: float, ci_high: float, outcome_sd: float,
 
     rr_pt = rr(point)
     e_point = _evalue_from_rr(rr_pt)
-
-    rr_lo, rr_hi = rr(ci_low), rr(ci_high)
-    if (rr_lo - 1.0) * (rr_hi - 1.0) <= 0:          # CI crosses the null
-        e_ci = 1.0
-    else:                                            # E-value for the limit nearest 1
-        rr_ci = min((rr_lo, rr_hi), key=lambda r: abs(math.log(r)))
-        e_ci = _evalue_from_rr(rr_ci)
-
-    return RefuterResult(
+    res = partial(
+        RefuterResult,
         name="E-value (unmeasured confounding)",
         method="VanderWeele-Ding E-value (continuous, SMD->RR)",
         hint=f"a confounder would need RR>=this on BOTH to overturn (floor {config.evalue_floor})",
-        original_effect=point,
+        original_effect=point)
+    base = {"e_point": e_point, "rr_point": rr_pt,
+            "contrast": contrast, "outcome_sd": outcome_sd}
+
+    rr_lo, rr_hi = rr(ci_low), rr(ci_high)
+    if (rr_lo - 1.0) * (rr_hi - 1.0) <= 0:
+        # CI crosses the null: there is no significant effect to explain away,
+        # so an E-value floor is NOT APPLICABLE — this is the pre-registered H4
+        # outcome, not a failed robustness check. Report PENDING/NA, never FAIL.
+        return res(
+            observed=e_point,
+            statistic=(f"not applicable — headline CI crosses the null "
+                       f"(H4-consistent); E(point)={e_point:.2f} reported for context"),
+            passed=None,
+            detail={**base, "e_ci": None, "status": "not_applicable_null_headline"})
+
+    rr_ci = min((rr_lo, rr_hi), key=lambda r: abs(math.log(r)))  # limit nearest 1
+    e_ci = _evalue_from_rr(rr_ci)
+    return res(
         observed=e_ci,
         statistic=(f"E(point)={e_point:.2f}  E(CI limit)={e_ci:.2f}  "
                    f"floor={config.evalue_floor:.2f}  (approx RR={rr_pt:.3f})"),
         passed=bool(e_ci >= config.evalue_floor),
-        detail={"e_point": e_point, "e_ci": e_ci, "rr_point": rr_pt,
-                "contrast": contrast, "outcome_sd": outcome_sd})
+        detail={**base, "e_ci": e_ci})
 
 
 # --------------------------------------------------------------------------- #
@@ -205,31 +219,36 @@ def _cohen_kappa(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def home_resolution_agreement(df: pd.DataFrame, stated_col: str, modal_col: str,
-                              config: SensitivityConfig = SensitivityConfig()
+                              config: Optional[SensitivityConfig] = None
                               ) -> RefuterResult:
     """Agreement between stated profile country and modal photo-pattern country.
-    Returns PENDING (passed=None) when modal is entirely unpopulated, so a not-yet-
-    computed check never reads as a silent PASS or a FAIL."""
-    if modal_col not in df.columns or df[modal_col].notna().sum() == 0:
-        return RefuterResult(
-            name="Home-Resolution Agreement (stated vs modal)",
-            method="raw agreement + Cohen's kappa",
-            hint=f"agreement>={config.agreement_floor:.0%} & kappa>={config.kappa_floor:.2f}",
-            original_effect=float("nan"), observed=float("nan"),
-            statistic="PENDING — modal_country_iso unpopulated (needs global photo pull)",
-            passed=None,
-            detail={"status": "pending", "reason": "modal_country_iso all-null"})
+    Returns PENDING (passed=None) when the check cannot be computed — modal
+    entirely unpopulated, or zero rows with BOTH sides present — so a
+    not-yet-computable check never reads as a silent PASS or a NaN FAIL."""
+    config = config or SensitivityConfig()
+    res = partial(
+        RefuterResult,
+        name="Home-Resolution Agreement (stated vs modal)",
+        method="raw agreement + Cohen's kappa",
+        hint=f"agreement>={config.agreement_floor:.0%} & kappa>={config.kappa_floor:.2f}",
+        original_effect=float("nan"))
 
-    d = df.dropna(subset=[stated_col, modal_col])
+    if modal_col not in df.columns or df[modal_col].notna().sum() == 0:
+        reason = "modal_country_iso unpopulated (needs global photo pull)"
+        d = None
+    else:
+        d = df.dropna(subset=[stated_col, modal_col])
+        reason = None if len(d) else "no rows with BOTH stated and modal populated"
+    if reason:
+        return res(observed=float("nan"), statistic=f"PENDING — {reason}",
+                   passed=None, detail={"status": "pending", "reason": reason})
+
     a = d[stated_col].to_numpy(); b = d[modal_col].to_numpy()
     agree = float(np.mean(a == b))
     kappa = _cohen_kappa(a, b)
     passed = (agree >= config.agreement_floor) and (kappa >= config.kappa_floor)
-    return RefuterResult(
-        name="Home-Resolution Agreement (stated vs modal)",
-        method="raw agreement + Cohen's kappa",
-        hint=f"agreement>={config.agreement_floor:.0%} & kappa>={config.kappa_floor:.2f}",
-        original_effect=float("nan"), observed=agree,
+    return res(
+        observed=agree,
         statistic=(f"agreement={agree:.1%} (>={config.agreement_floor:.0%})  "
                    f"kappa={kappa:.3f} (>={config.kappa_floor:.2f})  n={len(d)}"),
         passed=bool(passed),
@@ -309,8 +328,9 @@ def run_design_refutations(df: pd.DataFrame, treatment: str, neg_outcome: str,
                            headline: Optional[tuple] = None,
                            outcome_sd: Optional[float] = None,
                            contrast: float = 1.0,
-                           config: SensitivityConfig = SensitivityConfig(),
+                           config: Optional[SensitivityConfig] = None,
                            out_dir: Optional[str] = None) -> list[RefuterResult]:
+    config = config or SensitivityConfig()   # fresh default per call, never shared
     results: list[RefuterResult] = []
 
     results.append(negative_control(
@@ -324,54 +344,12 @@ def run_design_refutations(df: pd.DataFrame, treatment: str, neg_outcome: str,
     if stated_col and modal_col:
         results.append(home_resolution_agreement(df, stated_col, modal_col, config))
 
-    _print_report(results)
+    print_report(results, "DAG DESIGN-REFUTATION REPORT  "
+                          "(node-specific checks beyond the DoWhy battery)")
     if out_dir:
-        _write_report(results, config, out_dir)
+        write_report(results, config, out_dir, stem="design_refutation_report",
+                     title="DAG design-refutation report")
     return results
-
-
-def _flag(passed) -> str:
-    return "PEND" if passed is None else ("PASS" if passed else "FAIL")
-
-
-def _print_report(results: list[RefuterResult]) -> None:
-    print("\n" + "=" * 82)
-    print("DAG DESIGN-REFUTATION REPORT  (node-specific checks beyond the DoWhy battery)")
-    print("=" * 82)
-    print(f"{'#':<2} {'check':<34} {'result':<8} detail")
-    print("-" * 82)
-    for i, r in enumerate(results, 1):
-        print(f"{i:<2} {r.name:<34} {_flag(r.passed):<8} {r.statistic}")
-    n_pass = sum(r.passed is True for r in results)
-    n_pend = sum(r.passed is None for r in results)
-    print("-" * 82)
-    tail = f" ({n_pend} pending)" if n_pend else ""
-    print(f"{n_pass}/{len(results)} design refutations passed{tail}")
-    print("=" * 82)
-
-
-def _write_report(results: list[RefuterResult], config: SensitivityConfig,
-                  out_dir: str) -> None:
-    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "config": asdict(config),
-        "n_passed": sum(r.passed is True for r in results),
-        "n_pending": sum(r.passed is None for r in results),
-        "n_total": len(results),
-        "results": [asdict(r) for r in results],
-    }
-    (out / "design_refutation_report.json").write_text(
-        json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    lines = ["# DAG design-refutation report\n",
-             f"Passed **{payload['n_passed']}/{payload['n_total']}**"
-             + (f" ({payload['n_pending']} pending)\n" if payload["n_pending"] else "\n"),
-             "| # | Check | Hint | Result | Detail |", "|---|---|---|---|---|"]
-    for i, r in enumerate(results, 1):
-        mark = {None: "⏳ PENDING", True: "✅ PASS", False: "❌ FAIL"}[r.passed]
-        lines.append(f"| {i} | {r.name} | {r.hint} | {mark} | {r.statistic} |")
-    (out / "design_refutation_report.md").write_text("\n".join(lines) + "\n",
-                                                     encoding="utf-8")
-    print(f"-> wrote {out/'design_refutation_report.json'} and .md")
 
 
 # --------------------------------------------------------------------------- #
@@ -414,7 +392,6 @@ def _selftest() -> int:
         stated_col="stated_country_iso", modal_col="modal_country_iso",
         headline=(pt, ci[0], ci[1]), outcome_sd=df["y_mean_remoteness"].std())
 
-    by = {r.name.split(" (")[0].split(" stated")[0]: r for r in results}
     nc = next(r for r in results if r.name.startswith("Hour"))
     ev = next(r for r in results if r.name.startswith("E-value"))
     ag = next(r for r in results if r.name.startswith("Home"))

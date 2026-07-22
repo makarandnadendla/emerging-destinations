@@ -58,6 +58,7 @@ def load_config(dest_override: str | None,
         "h3_res": h3_res_override if h3_res_override is not None else cfg["h3_res"],
         "min_photos": cfg["min_photos"],
         "min_cells": cfg["min_cells"],
+        "min_origin_users": cfg["min_origin_users"],
         "years": (y0, y1),
     }
 
@@ -72,62 +73,6 @@ def table_name(path: Path) -> str:
     return re.sub(r"^\d+_", "", path.stem)
 
 
-def split_statements(sql: str) -> list[str]:
-    """Split SQL on ';' but ignore separators inside line comments (-- ... ),
-    block comments (/* ... */), and single-quoted string literals. A naive
-    sql.split(';') breaks statements whose comments contain a semicolon."""
-    stmts: list[str] = []
-    buf: list[str] = []
-    i, n = 0, len(sql)
-    in_line_comment = in_block_comment = in_string = False
-    while i < n:
-        ch = sql[i]
-        nxt = sql[i + 1] if i + 1 < n else ""
-        if in_line_comment:
-            buf.append(ch)
-            if ch == "\n":
-                in_line_comment = False
-        elif in_block_comment:
-            buf.append(ch)
-            if ch == "*" and nxt == "/":
-                buf.append(nxt)
-                i += 2
-                in_block_comment = False
-                continue
-        elif in_string:
-            buf.append(ch)
-            if ch == "'":
-                if nxt == "'":  # escaped quote
-                    buf.append(nxt)
-                    i += 2
-                    continue
-                in_string = False
-        elif ch == "-" and nxt == "-":
-            in_line_comment = True
-            buf.append(ch)
-        elif ch == "/" and nxt == "*":
-            in_block_comment = True
-            buf.append(ch)
-            buf.append(nxt)
-            i += 2
-            continue
-        elif ch == "'":
-            in_string = True
-            buf.append(ch)
-        elif ch == ";":
-            stmt = "".join(buf).strip()
-            if stmt:
-                stmts.append(stmt)
-            buf = []
-        else:
-            buf.append(ch)
-        i += 1
-    tail = "".join(buf).strip()
-    if tail:
-        stmts.append(tail)
-    return stmts
-
-
 def bootstrap(con: duckdb.DuckDBPyConnection, cfg: dict) -> None:
     con.execute("INSTALL h3 FROM community; LOAD h3;")
     raw_db = Path(cfg["raw_db"])
@@ -140,6 +85,9 @@ def bootstrap(con: duckdb.DuckDBPyConnection, cfg: dict) -> None:
     con.execute("SET VARIABLE h3_res = ?;", [cfg["h3_res"]])
     con.execute("SET VARIABLE min_photos = ?;", [cfg["min_photos"]])
     con.execute("SET VARIABLE min_cells = ?;", [cfg["min_cells"]])
+    con.execute("SET VARIABLE min_origin_users = ?;", [cfg["min_origin_users"]])
+    con.execute("SET VARIABLE year_min = ?;", [cfg["years"][0]])
+    con.execute("SET VARIABLE year_max = ?;", [cfg["years"][1]])
 
     # The optional global photo pull (extract_global_photos.py) writes
     # raw.user_country_counts (per-user worldwide country tally). Expose it as a
@@ -184,14 +132,12 @@ def run_transform(cfg: dict, only: list[str] | None) -> int:
 
     for f in sql_files:
         sql = f.read_text(encoding="utf-8")
-        # Split into statements (comment/string-aware) so multi-table steps like
-        # 10_aggregates_for_frontend.sql run fully without breaking on a ';'
-        # that happens to sit inside a '-- ...' comment.
-        statements = split_statements(sql)
         t0 = time.time()
         try:
-            for stmt in statements:
-                con.execute(stmt)
+            # DuckDB's execute() runs multi-statement scripts natively with
+            # correct comment/string handling (no parameters passed here), so
+            # no client-side statement splitting is needed.
+            con.execute(sql)
         except Exception as e:
             print(f"   [{f.name}] FAILED: {e}")
             return 1
@@ -223,6 +169,14 @@ def main() -> int:
 
     if not (args.transform or args.extract):
         p.error("specify --transform (and/or --extract)")
+
+    # H3 cell ids encode their resolution, so tables built at different
+    # resolutions join to zero rows silently. A partial rebuild at a new
+    # resolution into the default warehouse would corrupt it that way.
+    if args.h3_res is not None and args.only and not args.warehouse:
+        p.error("--h3-res with --only requires --warehouse: a partial rebuild at a "
+                "new resolution would mix resolutions in the default warehouse "
+                "(joins on the H3 column then silently match 0 rows)")
 
     cfg = load_config(args.dest, args.h3_res, args.warehouse)
 

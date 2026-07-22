@@ -77,7 +77,10 @@ class RefuteConfig:
     rel_change_random_cause: float = 0.10
     rel_change_subset: float = 0.15
     rel_change_bootstrap: float = 0.15
-    # "should go to zero" refuters: |new effect| as a fraction of |original|
+    # "should go to zero" refuters. placebo: |new effect| as a fraction of
+    # |original| (same outcome scale, ratio is coherent). dummy: STANDARDIZED
+    # effect in sd-units (|beta|*sd(T)/sd(dummy_y)) because the dummy outcome
+    # is unit-variance noise unrelated to the real outcome's scale.
     placebo_zero_frac: float = 0.15
     dummy_zero_frac: float = 0.15
     # "should match the injected truth" refuter
@@ -94,15 +97,6 @@ class RefuteConfig:
     # mirrors the linear baseline; set to the Stage-A DML method to test that estimator.
     reestimate_method_name: str = "backdoor.linear_regression"
     reestimate_method_params: Optional[dict] = None
-
-
-# Module-level (picklable) known-effect function for the simulated-outcome DGP.
-class _LinearEffect:
-    def __init__(self, beta: float):
-        self.beta = float(beta)
-
-    def __call__(self, t):
-        return self.beta * np.asarray(t, dtype=float)
 
 
 @dataclass
@@ -157,6 +151,14 @@ def _effects(result) -> list[float]:
     return out
 
 
+def _first_effect(result) -> float:
+    """First finite new-effect, or NaN when the refuter returned none (a NaN
+    re-estimate). NaN fails every threshold comparison, so the test records a
+    FAIL row instead of crashing the battery with an IndexError."""
+    effs = _effects(result)
+    return effs[0] if effs else float("nan")
+
+
 def _pval(result) -> Optional[float]:
     items = result if isinstance(result, (list, tuple)) else [result]
     for r in items:
@@ -204,7 +206,9 @@ def _simulated_outcome_recovery(model: CausalModel, injected: float,
 
     y = df[outcome].to_numpy(float)
     if feats:
-        X = df[feats].to_numpy(float)
+        # One-hot encode string/categorical confounders (e.g. origin_region) —
+        # DoWhy's own estimators encode internally, but sklearn needs it done here.
+        X = pd.get_dummies(df[feats], drop_first=True, dtype=float).to_numpy(float)
         fW = LinearRegression().fit(X, y).predict(X)
     else:
         fW = np.full(len(df), float(y.mean()))
@@ -225,8 +229,9 @@ def _simulated_outcome_recovery(model: CausalModel, injected: float,
 # The seven refutations
 # --------------------------------------------------------------------------- #
 def run_all_refutations(model: CausalModel, identified_estimand, estimate,
-                        config: RefuteConfig = RefuteConfig(),
+                        config: Optional[RefuteConfig] = None,
                         out_dir: Optional[str] = None) -> list[RefuterResult]:
+    config = config or RefuteConfig()   # fresh default per call, never shared
     np.random.seed(config.random_seed)
     orig = float(estimate.value)
     N = config.num_simulations
@@ -235,20 +240,23 @@ def run_all_refutations(model: CausalModel, identified_estimand, estimate,
     def refute(**kw):
         return model.refute_estimate(identified_estimand, estimate, **kw)
 
+    def stable(name: str, method: str, r, tol: float) -> RefuterResult:
+        """Shared shape for the 'estimate should NOT change' refuters (1/6/7)."""
+        new = _first_effect(r)
+        return RefuterResult(
+            name, method, "estimate should NOT change", orig, new,
+            f"rel. change {_rel(new, orig):.1%} (<= {tol:.0%})",
+            _rel(new, orig) <= tol, {"p_value": _pval(r)})
+
     # 1. Add Random Common Cause -------------------------------------------- #
     r = refute(method_name="random_common_cause", num_simulations=N)
-    new = _effects(r)[0]
-    results.append(RefuterResult(
-        "Add Random Common Cause", "random_common_cause",
-        "estimate should NOT change", orig, new,
-        f"rel. change {_rel(new, orig):.1%} (<= {config.rel_change_random_cause:.0%})",
-        _rel(new, orig) <= config.rel_change_random_cause,
-        {"p_value": _pval(r)}))
+    results.append(stable("Add Random Common Cause", "random_common_cause",
+                          r, config.rel_change_random_cause))
 
     # 2. Placebo Treatment --------------------------------------------------- #
     r = refute(method_name="placebo_treatment_refuter", placebo_type="permute",
                num_simulations=N)
-    new = _effects(r)[0]
+    new = _first_effect(r)
     frac = abs(new) / max(abs(orig), 1e-9)
     results.append(RefuterResult(
         "Placebo Treatment", "placebo_treatment_refuter",
@@ -257,15 +265,22 @@ def run_all_refutations(model: CausalModel, identified_estimand, estimate,
         frac <= config.placebo_zero_frac, {"p_value": _pval(r)}))
 
     # 3. Dummy Outcome (true effect = 0) ------------------------------------ #
+    # The dummy outcome is dowhy's zero + N(0,1) noise, so the recovered
+    # coefficient lives on a scale UNRELATED to the real outcome — dividing by
+    # |orig| would make the verdict depend on the real outcome's units
+    # (spurious FAIL for small-scale outcomes like remoteness in [0,1]).
+    # Compare the STANDARDIZED placebo effect instead: |beta| * sd(T) / sd(y_dummy=1),
+    # i.e. sd-units of dummy outcome per sd of treatment; ~0 for a sound estimator.
     r = refute(method_name="dummy_outcome_refuter", num_simulations=N)
     effs = _effects(r)
     worst = max(effs, key=abs) if effs else float("nan")
-    frac = abs(worst) / max(abs(orig), 1e-9)
+    t_sd = float(np.std(model._data[model._treatment[0]].to_numpy(float))) or 1.0
+    std_eff = abs(worst) * t_sd
     results.append(RefuterResult(
         "Dummy Outcome", "dummy_outcome_refuter",
         "effect should go to ~0", orig, worst,
-        f"worst |new|/|orig| {frac:.1%} (<= {config.dummy_zero_frac:.0%})",
-        frac <= config.dummy_zero_frac, {"all_new_effects": effs}))
+        f"worst standardized effect {std_eff:.3f} sd (<= {config.dummy_zero_frac:.2f} sd)",
+        std_eff <= config.dummy_zero_frac, {"all_new_effects": effs, "t_sd": t_sd}))
 
     # 4. Simulated Outcome (known injected effect) -------------------------- #
     # Implemented as a transparent manual known-DGP swap rather than via
@@ -314,64 +329,78 @@ def run_all_refutations(model: CausalModel, identified_estimand, estimate,
 
     # 6. Data Subset Validation --------------------------------------------- #
     r = refute(method_name="data_subset_refuter", subset_fraction=0.8, num_simulations=N)
-    new = _effects(r)[0]
-    results.append(RefuterResult(
-        "Data Subset Validation", "data_subset_refuter",
-        "estimate should NOT change", orig, new,
-        f"rel. change {_rel(new, orig):.1%} (<= {config.rel_change_subset:.0%})",
-        _rel(new, orig) <= config.rel_change_subset, {"p_value": _pval(r)}))
+    results.append(stable("Data Subset Validation", "data_subset_refuter",
+                          r, config.rel_change_subset))
 
     # 7. Bootstrap Validation ----------------------------------------------- #
     r = refute(method_name="bootstrap_refuter", num_simulations=N)
-    new = _effects(r)[0]
-    results.append(RefuterResult(
-        "Bootstrap Validation", "bootstrap_refuter",
-        "estimate should NOT change", orig, new,
-        f"rel. change {_rel(new, orig):.1%} (<= {config.rel_change_bootstrap:.0%})",
-        _rel(new, orig) <= config.rel_change_bootstrap, {"p_value": _pval(r)}))
+    results.append(stable("Bootstrap Validation", "bootstrap_refuter",
+                          r, config.rel_change_bootstrap))
 
-    _print_report(orig, results)
+    print_report(results, f"REFUTATION REPORT   (original effect = {orig:.5f})")
     if out_dir:
-        _write_report(orig, results, config, out_dir)
+        write_report(results, config, out_dir, stem="refutation_report",
+                     title="Refutation report",
+                     extra={"original_effect": orig},
+                     md_header=[f"Original effect estimate: **{orig:.5f}**"])
     return results
 
 
-def _print_report(orig: float, results: list[RefuterResult]) -> None:
-    print("\n" + "=" * 78)
-    print(f"REFUTATION REPORT   (original effect = {orig:.5f})")
-    print("=" * 78)
-    print(f"{'#':<2} {'test':<30} {'result':<8} detail")
-    print("-" * 78)
+def _flag(passed) -> str:
+    """Tri-state: True=PASS, False=FAIL, None=PEND (sensitivity.py stores None
+    for not-yet-computable checks in the same RefuterResult type)."""
+    return "PEND" if passed is None else ("PASS" if passed else "FAIL")
+
+
+def print_report(results: list[RefuterResult], title: str,
+                 width: int = 82, name_w: int = 34) -> None:
+    """Console table shared by the DoWhy battery and sensitivity.py's design
+    refutations, so the two reports render identically (incl. PEND rows)."""
+    print("\n" + "=" * width)
+    print(title)
+    print("=" * width)
+    print(f"{'#':<2} {'test':<{name_w}} {'result':<8} detail")
+    print("-" * width)
     for i, r in enumerate(results, 1):
-        flag = "PASS" if r.passed else "FAIL"
-        print(f"{i:<2} {r.name:<30} {flag:<8} {r.statistic}")
-    n_pass = sum(r.passed for r in results)
-    print("-" * 78)
-    print(f"{n_pass}/{len(results)} refutations passed")
-    print("=" * 78)
+        print(f"{i:<2} {r.name:<{name_w}} {_flag(r.passed):<8} {r.statistic}")
+    n_pass = sum(r.passed is True for r in results)
+    n_pend = sum(r.passed is None for r in results)
+    print("-" * width)
+    tail = f" ({n_pend} pending)" if n_pend else ""
+    print(f"{n_pass}/{len(results)} refutations passed{tail}")
+    print("=" * width)
 
 
-def _write_report(orig: float, results: list[RefuterResult],
-                  config: RefuteConfig, out_dir: str) -> None:
+def write_report(results: list[RefuterResult], config, out_dir: str,
+                 stem: str, title: str,
+                 extra: Optional[dict] = None,
+                 md_header: Optional[list[str]] = None) -> None:
+    """JSON + markdown report writer shared with sensitivity.py. `extra` merges
+    into the JSON payload; `md_header` lines go under the markdown title."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    n_pass = sum(r.passed is True for r in results)
+    n_pend = sum(r.passed is None for r in results)
     payload = {
-        "original_effect": orig,
+        **(extra or {}),
         "config": asdict(config),
-        "n_passed": sum(r.passed for r in results),
+        "n_passed": n_pass,
+        "n_pending": n_pend,
         "n_total": len(results),
         "results": [asdict(r) for r in results],
     }
-    (out / "refutation_report.json").write_text(json.dumps(payload, indent=2, default=str),
-                                                encoding="utf-8")
-    lines = [f"# Refutation report\n", f"Original effect estimate: **{orig:.5f}**\n",
-             f"Passed **{payload['n_passed']}/{payload['n_total']}**\n",
+    (out / f"{stem}.json").write_text(json.dumps(payload, indent=2, default=str),
+                                      encoding="utf-8")
+    marks = {True: "✅ PASS", False: "❌ FAIL", None: "⏳ PENDING"}
+    pend_note = f" ({n_pend} pending)" if n_pend else ""
+    lines = [f"# {title}\n", *[h + "\n" for h in (md_header or [])],
+             f"Passed **{n_pass}/{len(results)}**{pend_note}\n",
              "| # | Test | Hint | Result | Detail |", "|---|---|---|---|---|"]
     for i, r in enumerate(results, 1):
         lines.append(f"| {i} | {r.name} | {r.hint} | "
-                     f"{'✅ PASS' if r.passed else '❌ FAIL'} | {r.statistic} |")
-    (out / "refutation_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"-> wrote {out/'refutation_report.json'} and .md")
+                     f"{marks[r.passed]} | {r.statistic} |")
+    (out / f"{stem}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"-> wrote {out / (stem + '.json')} and .md")
 
 
 # --------------------------------------------------------------------------- #

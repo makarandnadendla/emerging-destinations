@@ -35,6 +35,8 @@ import duckdb
 import requests
 import yaml
 
+from _common import load_dotenv
+
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"
 
 FLICKR_API = "https://api.flickr.com/services/rest/"
@@ -76,17 +78,6 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
         "min_bbox_side_deg": flickr.get("min_bbox_side_deg", MIN_BBOX_SIDE_DEG),
         "rate_limit_sleep": flickr.get("rate_limit_sleep", RATE_LIMIT_SLEEP),
     }
-
-
-def load_dotenv(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def init_db(con: duckdb.DuckDBPyConnection) -> None:
@@ -161,7 +152,7 @@ def flickr_search(api_key: str, bbox, min_ts: int, max_ts: int, page: int) -> di
         "has_geo": 1,
     }
     last_err: Exception | None = None
-    for backoff in RETRY_BACKOFF:
+    for attempt, backoff in enumerate(RETRY_BACKOFF):
         try:
             r = requests.get(FLICKR_API, params=params, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
@@ -171,8 +162,9 @@ def flickr_search(api_key: str, bbox, min_ts: int, max_ts: int, page: int) -> di
             return data
         except (requests.RequestException, RuntimeError, ValueError) as e:
             last_err = e
-            print(f"    ! retry in {backoff}s: {e}")
-            time.sleep(backoff)
+            if attempt < len(RETRY_BACKOFF) - 1:   # no point sleeping after the last try
+                print(f"    ! retry in {backoff}s: {e}")
+                time.sleep(backoff)
     raise RuntimeError(f"flickr_search failed after retries: {last_err}")
 
 
@@ -384,7 +376,10 @@ def process(con: duckdb.DuckDBPyConnection, api_key: str, max_iters: int | None)
         # be split further (bbox minimal AND time span too small). Both paginate up
         # to Flickr's retrievable wall; the dense case is marked 'capped' so it is
         # never revisited and the data loss is logged rather than silent.
-        capped = total >= SUBDIVIDE_THRESHOLD
+        # pages > MAX_PAGES also caps: with per_page below ~440 (config or Flickr
+        # serving short pages) a tile can be under the subdivide threshold yet
+        # have more pages than we drain — that loss must be flagged, not 'done'.
+        capped = total >= SUBDIVIDE_THRESHOLD or pages > MAX_PAGES
         inserted, completed, fetched = drain_pages(con, api_key, f, data, pages, label, MAX_PAGES)
         if completed:
             status = "capped" if capped else "done"
