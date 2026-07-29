@@ -135,6 +135,33 @@ def estimate_linear(model: CausalModel, identified_estimand):
     return model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
 
 
+def dml_nuisance_models() -> dict:
+    """Stage-A DML nuisance models (user decision, 2026-07): both nuisances
+    default to econml's 'auto' model selection.
+
+    The treatment stays CONTINUOUS (raw HDI, not binned). With a continuous
+    treatment the discrete-treatment DR learners (and any propensity classifier)
+    don't apply; the estimator is LinearDML, where model_t is the treatment
+    model — the continuous analogue of the propensity — and model_y is the
+    outcome model. NOTE: the linear final stage estimates a single slope in
+    HDI; the U-shape found in the assumption-audit EDA is handled by a
+    binned/spline sensitivity spec, not by the headline."""
+    return {"model_y": "auto", "model_t": "auto"}
+
+
+def estimate_dml(model: CausalModel, identified_estimand, **init_overrides):
+    """Debiased-ML estimate via econml's LinearDML (DoWhy-wrapped so the
+    refutation battery can re-run it): 'auto' nuisances + linear final stage
+    with statsmodels inference. Continuous treatment."""
+    init = {**dml_nuisance_models(), "random_state": 20240608}
+    init.update(init_overrides)
+    return model.estimate_effect(
+        identified_estimand,
+        method_name="backdoor.econml.dml.LinearDML",
+        method_params={"init_params": init, "fit_params": {}},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Result parsing
 # --------------------------------------------------------------------------- #

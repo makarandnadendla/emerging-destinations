@@ -13,7 +13,7 @@ This spec replaces the mock with a real pipeline:
 - **Primary data:** Flickr geotagged photos + user profile location, 2012–2019, with iNaturalist as a fallback if Flickr access stalls.
 - **Outcome:** remoteness defined externally via **inverse OSM POI density**, not Flickr density (decouples the outcome from the photographer-population we're sampling).
 - **Unit of analysis:** **(user × hex cell) visits** on an **H3 resolution-6** grid (~36 km² hexes).
-- **Identification:** **doubly-robust regression** (outcome model + propensity score) on continuous HDI, with E-value sensitivity and a hour-of-day negative control.
+- **Identification:** **two-tier on continuous HDI** — headline = within-region OLS (origin-clustered SEs) estimated only where a pre-stated identification gate says HDI actually varies within region; secondary = pooled **DML** (econml `LinearDML`, `'auto'` nuisances). E-value sensitivity and a hour-of-day negative control throughout. (Supersedes the earlier DR plan — see §14.)
 - **Deliverables:** (a) the existing 6-slide findings deck with real numbers, (b) a longer methods deck, (c) a 12–20 page Quarto methodology PDF for hiring managers + technical reviewers.
 
 **Why this shape:** the headline framing in CLAUDE.md (H1 acclimation / H2 status-good / H3 heterogeneous / H4 null) and the prototype's visual language stay intact, but the analysis backbone is moved from a synthetic generator to a reproducible DuckDB-based pipeline. The methodology PDF carries the causal-inference rigor; the deck carries the story.
@@ -42,8 +42,8 @@ This spec replaces the mock with a real pipeline:
 | Inclusion threshold | ≥5 photos AND ≥2 distinct hex cells in destination |
 | Origin predictor | **HDI primary**; GDP/cap PPP, LPI, composite as robustness |
 | HDI vintage | **Year-matched** (panel join on trip year) |
-| Treatment spec | **Continuous HDI**, doubly-robust regression (no binarization) |
-| Model 1 (headline) | User-level OLS on photo-weighted mean cell-remoteness |
+| Treatment spec | **Continuous HDI, never binned** — rules out discrete-treatment DR learners; pooled estimator is DML (`LinearDML`) |
+| Model 1 (headline) | **Within-region** user-level OLS on photo-weighted mean cell-remoteness (first-trip), under the identification gate; origin-clustered SEs |
 | Model 2 (supplemental) | Cell-level multilevel logistic on (user × cell) visits |
 | Sensitivity | E-values for unmeasured confounding |
 | Negative control | Photo timestamp hour-of-day (should NOT depend on HDI conditional on season) |
@@ -129,12 +129,13 @@ Numbered SQL files in `pipeline/sql/` (`01_users.sql`, `02_photos.sql`, etc.) ex
 
 `analysis/02_models.qmd` — the two-part regression:
 
-- **Model 1 (headline, user-level OLS, doubly robust):**
-  - Outcome: `Y_i = Σ_c (photos_ic / Σ_c' photos_ic') × remoteness_c` — photo-weighted mean cell-remoteness for user *i*.
-  - Treatment: continuous `HDI_origin_country, trip_year`.
-  - Confounders: origin region (7 levels), GDP/cap PPP, distance origin↔destination capital, total_photos (log).
-  - **DR estimator:** outcome model (OLS with confounders) + propensity score for the treatment (linear regression of HDI on confounders). Combined via Robins–Rotnitzky–Zhao DR estimator (use `econml` or hand-coded; `econml` preferred).
-  - Standard errors: bootstrap (500 reps), cluster on origin country.
+- **Model 1 (headline, two-tier; implemented in `analysis/estimate.py`):**
+  - Outcome: `Y_i = Σ_c (photos_ic / Σ_c' photos_ic') × remoteness_c` — photo-weighted mean cell-remoteness for user *i*, **first trip** (30-day gap rule; 14/60-day and pooled-all-trips as sensitivity specs).
+  - Treatment: continuous `HDI_origin_country, trip_year` (never binned).
+  - **Identification gate (pre-stated scope condition):** causal within-region slopes are estimated ONLY where within-region user-level HDI sd ≥ 0.02 AND region cohort ≥ 50 users. Regions failing the gate (e.g. North America, Oceania — HDI structurally constant) are reported descriptively only, labeled as such. Region is the stratification variable, not a pooled covariate: ~70% of HDI variance is between-region, so the identifying variation is the within-region residual.
+  - **Tier 1 (headline):** within-region OLS of Y on HDI + trip-year dummies, **origin-clustered SEs**; fragility surfaced by leave-one-origin-out (slope range + sign-flip flag; two-origin regions state "two-point contrast" instead).
+  - **Tier 2 (secondary, pooled):** econml **`LinearDML`**, nuisances `'auto'`, region + trip-year dummies in W, DoWhy-wrapped (`analysis/refute.py::estimate_dml`) so the full refutation battery re-runs against it. Pooled ATE is labeled as dominated by regions with real HDI variation (DML self-localizes: residualized treatment ≈ 0 where HDI doesn't vary).
+  - Rationale for DML over the earlier DR plan: the treatment stays continuous, so discrete-treatment DR learners (and any propensity classifier) don't apply; `LinearDML`'s `model_t` is the continuous analogue of the propensity.
 
 - **Model 2 (supplemental, cell-level multilevel logistic):**
   - One row per (user × cell-that-could-be-visited-in-Japan). Outcome: visited (1/0).
@@ -142,9 +143,9 @@ Numbered SQL files in `pipeline/sql/` (`01_users.sql`, `02_photos.sql`, etc.) ex
   - Use `pymer4` (lme4 binding) or `statsmodels.mixedlm` (limited but adequate).
   - Slow: subsample cells if needed; report runtime.
 
-- **Robustness table:** swap HDI → GDP/cap PPP → LPI → 1st PC composite. Same DR spec each time.
+- **Robustness table:** swap HDI → GDP/cap PPP → LPI → 1st PC composite. Same two-tier spec each time.
 
-- **Negative control:** mean photo timestamp hour-of-day per user, **conditional on month-of-year** (to remove seasonal daylight confounding). Should not depend on HDI. Report the same DR coefficient on this placebo outcome. If it's significant, we have unmeasured confounding to flag.
+- **Negative control:** mean photo timestamp hour-of-day per user, **conditional on month-of-year** (to remove seasonal daylight confounding). Should not depend on HDI. Report the same adjusted coefficient (identical estimation machinery, `sensitivity._adjusted_coef`) on this placebo outcome. If it's significant, we have unmeasured confounding to flag.
 
 - **E-values:** Compute Vanderweele/Ding E-value for the headline coefficient. Report what unmeasured confounder strength would be needed to overturn the result.
 
@@ -204,7 +205,7 @@ Numbered SQL files in `pipeline/sql/` (`01_users.sql`, `02_photos.sql`, etc.) ex
   3. User-home resolution + agreement rate
   4. Remoteness construction (OSM POI → hex → normalized)
   5. Coverage map + sample size by origin region
-  6. Headline regression (DR) result with CI
+  6. Headline within-region slopes (+ pooled DML secondary) with CIs
   7. Robustness table (HDI/GDP/LPI/composite)
   8. Negative control + E-value sensitivity
   9. Limitations
@@ -225,8 +226,8 @@ Extract slide-deck logic (keyboard, swipe, autoplay, progress) from `app.js` int
 1. Executive summary (1 page) — finding + 3 charts
 2. Motivation + hypotheses (1 p)
 3. Data (2–3 p) — Flickr extraction, sample funnel, user-home resolution, OSM POI definition, indicator vintages
-4. Identification (1–2 p) — DAG, assumptions, why DR
-5. Methods (2 p) — DR estimator, multilevel logistic, robustness specs
+4. Identification (1–2 p) — DAG, assumptions, the identification gate (where HDI varies), why scoped OLS + DML
+5. Methods (2 p) — within-region OLS + `LinearDML` secondary, multilevel logistic, robustness specs
 6. Results (3–4 p) — headline coefficient, robustness, heterogeneity by origin region
 7. Sensitivity + negative control (2 p) — E-values, hour-of-day placebo
 8. Limitations (1 p) — Flickr selection, static OSM, stated location selection, single-destination scope
@@ -309,7 +310,7 @@ No Vercel, no Netlify, no custom domain (deferred).
 | 3 | Flickr quadtree extraction kicks off (background; expect an overnight, possibly multi-day drain). | Cell remoteness model finalized; verify against intuition. | — |
 | 4 | Flickr extraction continues. Start Nominatim geocoding queue. | Sample funnel sanity-check (low-fi). | DAG draft. |
 | 5 | Flickr extraction continues. | First user-level OLS on whatever data is in. | — |
-| 6 | Flickr extraction completes (target). User-home resolution. | Full DR regression. Bootstrap SEs. | — |
+| 6 | Flickr extraction completes (target). User-home resolution. | Full two-tier estimation (within-region OLS + pooled LinearDML). Clustered SEs. | — |
 | 7 | All data settled. Final aggregates JSON. | Robustness table. Negative control. E-values. | — |
 | 8 | — | Multilevel logistic (Model 2). | Methods PDF sections 1–4 draft. |
 | 9 | — | Figures finalized in 03_figures.qmd. | Methods PDF sections 5–7 draft. |
@@ -358,7 +359,7 @@ The pipeline is verified end-to-end if:
 
 1. `python pipeline/run.py --extract` produces parquet artifacts in cloud storage (or `data/cache/` for local dev) with row counts within expected order of magnitude (photos: hundreds of thousands; users: tens of thousands; POIs: hundreds of thousands for Japan).
 2. `python pipeline/run.py --transform` produces `data/warehouse.duckdb` with all 10 SQL views/tables populated. Spot-check: `SELECT COUNT(*) FROM user_features` returns ≥300.
-3. `quarto render analysis/02_models.qmd` produces a notebook with the DR coefficient + 95% CI on HDI, both robustness table and negative-control coefficient. No errors.
+3. `quarto render analysis/02_models.qmd` produces a notebook with the within-region HDI slopes + pooled `LinearDML` ATE (each with 95% CI), the robustness table, and the negative-control coefficient. No errors.
 4. `quarto render analysis/04_methodology_paper.qmd` produces `docs/methodology.pdf` ≥10 pages.
 5. Open `docs/index.html` via `python -m http.server 8910 --directory docs`. The 6-slide deck renders, the map heatmaps show non-uniform color (real data), and slide-2 filter dropdown updates the maps. No console errors.
 6. Open `docs/methods.html`. The methods deck renders with at least 8 slides, including the DAG, sample funnel, and E-value chart.
@@ -371,6 +372,6 @@ The pipeline is verified end-to-end if:
 
 - **Flickr quadtree starting bbox subdivision threshold:** when to subdivide vs. paginate? Probably subdivide when single-bbox results > 3500 (margin under 4000 cap).
 - **Hour-of-day negative control timezone:** convert photo timestamps to local Japan time, or origin-country time? Probably destination-local (asking what hour they were in Japan, not when they would have been awake at home).
-- **DR vs DML (double machine learning):** if `econml` is included anyway, DML with random-forest nuisance might be more modern. Decision deferred to day 6–7 based on sample size.
+- **DR vs DML (double machine learning):** ~~decision deferred to day 6–7~~ **RESOLVED (2026-07): DML.** The treatment stays continuous, which rules out econml's discrete-treatment DR learners outright; pooled secondary is `LinearDML` with `'auto'` nuisances (`analysis/refute.py::dml_nuisance_models`), and the headline is within-region OLS under the identification gate (`analysis/estimate.py`) — see §4.3.
 - **Composite indicator construction:** PCA on standardized HDI, GDP_PC_PPP, LPI, UHC, WGI_GOVE. Whether to include WGI given correlation with HDI > 0.9 is open.
 - **H3 resolution:** Japan uses **H3 r6** (~10k cells over the country). Whether a finer resolution (r7) better separates within-city beaten-path gradients is open; revisit only if r6 cells prove too coarse for the urban Golden-Route hubs.
