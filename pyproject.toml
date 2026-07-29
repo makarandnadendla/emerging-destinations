@@ -1,16 +1,27 @@
 [project]
 name = "emerging-destinations"
 version = "0.0.1"
-description = "Does origin-country development predict how far off the beaten path travelers go inside Georgia?"
+description = "Does origin-country development (HDI) predict how far off Japan's canonical 'Golden Route' beaten path inbound travelers venture?"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.34",
+    "dowhy>=0.14",
     "duckdb>=1.5.3",
+    "econml>=0.16.0",
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
     "osmium>=4.3.1",
+    "pandas>=3.0.3",
     "polars>=1.41.1",
+    "pyarrow>=24.0.0",
     "pycountry>=26.2.16",
+    "python-calamine>=0.6.2",
+    "pyyaml>=6.0.3",
     "requests>=2.34.2",
+    "reverse-geocoder>=1.5.1",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.15.3",
     "wbgapi>=1.0.14",
 ]
 

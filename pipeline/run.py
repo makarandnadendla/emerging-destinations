@@ -1,0 +1,191 @@
+"""
+Pipeline orchestrator.
+
+Stage T (Transform) is implemented: it builds a per-destination DuckDB warehouse
+by running the numbered SQL files in pipeline/sql/ in order, against a bootstrap
+that loads the h3 extension, attaches the raw extraction DB read-only, and sets
+the path/threshold variables the SQL reads via getvariable().
+
+Stage E (Extract) is currently run via the individual scripts in
+pipeline/extract/ (see their module docstrings); --extract here is a stub.
+
+Usage:
+    # Build the warehouse for the active destination (from config.yaml)
+    uv run python pipeline/run.py --transform
+
+    # Override destination (e.g. the Georgia comparison set)
+    uv run python pipeline/run.py --transform --dest georgia
+
+    # Run only specific steps (by numeric prefix)
+    uv run python pipeline/run.py --transform --dest georgia --only 02 03 04 05
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+import time
+from pathlib import Path
+
+import duckdb
+import yaml
+
+PIPELINE_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = PIPELINE_DIR / "config.yaml"
+SQL_DIR = PIPELINE_DIR / "sql"
+
+
+def load_config(dest_override: str | None,
+                h3_res_override: int | None = None,
+                warehouse_override: str | None = None) -> dict:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    active = dest_override or cfg["destination"]
+    if active not in cfg["destinations"]:
+        sys.exit(f"ERROR: unknown destination '{active}'. Known: {list(cfg['destinations'])}")
+    dest = cfg["destinations"][active]
+    y0, y1 = cfg["years"]
+    return {
+        "active": active,
+        "name": dest["name"],
+        "iso3": dest["iso3"],
+        "raw_db": dest["db_path"],
+        "pois_path": dest["osm_pois_parquet"],
+        # Overrides let you build an alternate resolution into a side-by-side
+        # warehouse without mutating config.yaml (e.g. --h3-res 7).
+        "warehouse": warehouse_override or dest["warehouse_path"],
+        "indicators_path": cfg["indicators_parquet"],
+        "h3_res": h3_res_override if h3_res_override is not None else cfg["h3_res"],
+        "min_photos": cfg["min_photos"],
+        "min_cells": cfg["min_cells"],
+        "min_origin_users": cfg["min_origin_users"],
+        "years": (y0, y1),
+    }
+
+
+def step_prefix(path: Path) -> str:
+    m = re.match(r"^(\d+)", path.name)
+    return m.group(1) if m else ""
+
+
+def table_name(path: Path) -> str:
+    # 04_poi_per_cell.sql -> poi_per_cell
+    return re.sub(r"^\d+_", "", path.stem)
+
+
+def bootstrap(con: duckdb.DuckDBPyConnection, cfg: dict) -> None:
+    con.execute("INSTALL h3 FROM community; LOAD h3;")
+    raw_db = Path(cfg["raw_db"])
+    if not raw_db.exists():
+        sys.exit(f"ERROR: raw DB not found: {raw_db}. Run the extract scripts first.")
+    con.execute(f"ATTACH '{raw_db.as_posix()}' AS raw (READ_ONLY);")
+    con.execute("SET VARIABLE pois_path = ?;", [Path(cfg["pois_path"]).as_posix()])
+    con.execute("SET VARIABLE indicators_path = ?;", [Path(cfg["indicators_path"]).as_posix()])
+    con.execute("SET VARIABLE dest_iso3 = ?;", [cfg["iso3"]])
+    con.execute("SET VARIABLE h3_res = ?;", [cfg["h3_res"]])
+    con.execute("SET VARIABLE min_photos = ?;", [cfg["min_photos"]])
+    con.execute("SET VARIABLE min_cells = ?;", [cfg["min_cells"]])
+    con.execute("SET VARIABLE min_origin_users = ?;", [cfg["min_origin_users"]])
+    con.execute("SET VARIABLE year_min = ?;", [cfg["years"][0]])
+    con.execute("SET VARIABLE year_max = ?;", [cfg["years"][1]])
+
+    # The optional global photo pull (extract_global_photos.py) writes
+    # raw.user_country_counts (per-user worldwide country tally). Expose it as a
+    # stable `user_modal_counts` view so 01_users.sql can always aggregate it —
+    # falling back to an empty view when the pull hasn't been run, so the
+    # transform never breaks on a missing table. The modal itself is computed in
+    # 01_users.sql (destination-excluded unless stated home IS the destination).
+    has_modal = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_catalog = 'raw' AND table_name = 'user_country_counts'
+    """).fetchone()[0]
+    if has_modal:
+        con.execute("""
+            CREATE OR REPLACE TEMP VIEW user_modal_counts AS
+            SELECT user_id, country_iso3, photo_count
+            FROM raw.user_country_counts
+        """)
+    else:
+        con.execute("""
+            CREATE OR REPLACE TEMP VIEW user_modal_counts AS
+            SELECT NULL::VARCHAR AS user_id, NULL::VARCHAR AS country_iso3,
+                   NULL::INTEGER AS photo_count WHERE FALSE
+        """)
+
+
+def run_transform(cfg: dict, only: list[str] | None) -> int:
+    sql_files = sorted(SQL_DIR.glob("*.sql"))
+    if only:
+        sql_files = [f for f in sql_files if step_prefix(f) in only]
+        if not sql_files:
+            sys.exit(f"ERROR: no SQL files matched --only {only}")
+
+    wh = Path(cfg["warehouse"])
+    wh.parent.mkdir(parents=True, exist_ok=True)
+    print(f"-> destination={cfg['name']} ({cfg['iso3']})")
+    print(f"-> warehouse={wh}")
+    print(f"-> raw={cfg['raw_db']}  pois={cfg['pois_path']}")
+    print(f"-> running {len(sql_files)} SQL step(s)\n")
+
+    con = duckdb.connect(str(wh))
+    bootstrap(con, cfg)
+
+    for f in sql_files:
+        sql = f.read_text(encoding="utf-8")
+        t0 = time.time()
+        try:
+            # DuckDB's execute() runs multi-statement scripts natively with
+            # correct comment/string handling (no parameters passed here), so
+            # no client-side statement splitting is needed.
+            con.execute(sql)
+        except Exception as e:
+            print(f"   [{f.name}] FAILED: {e}")
+            return 1
+        dt = time.time() - t0
+        tbl = table_name(f)
+        try:
+            n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            print(f"   [{f.name}] -> {tbl}: {n:,} rows  ({dt:.1f}s)")
+        except Exception:
+            print(f"   [{f.name}] done  ({dt:.1f}s)")
+
+    con.close()
+    print("\n-> transform complete")
+    return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Emerging Destinations pipeline orchestrator.")
+    p.add_argument("--transform", action="store_true", help="Build the DuckDB warehouse (Stage T).")
+    p.add_argument("--extract", action="store_true", help="(stub) Run Stage E extract scripts.")
+    p.add_argument("--dest", default=None, help="Override active destination from config.yaml.")
+    p.add_argument("--only", nargs="+", default=None,
+                   help="Run only these SQL steps by numeric prefix, e.g. --only 02 03.")
+    p.add_argument("--h3-res", type=int, default=None,
+                   help="Override H3 resolution (e.g. 7) for a side-by-side build.")
+    p.add_argument("--warehouse", default=None,
+                   help="Override warehouse output path (pair with --h3-res).")
+    args = p.parse_args()
+
+    if not (args.transform or args.extract):
+        p.error("specify --transform (and/or --extract)")
+
+    # H3 cell ids encode their resolution, so tables built at different
+    # resolutions join to zero rows silently. A partial rebuild at a new
+    # resolution into the default warehouse would corrupt it that way.
+    if args.h3_res is not None and args.only and not args.warehouse:
+        p.error("--h3-res with --only requires --warehouse: a partial rebuild at a "
+                "new resolution would mix resolutions in the default warehouse "
+                "(joins on the H3 column then silently match 0 rows)")
+
+    cfg = load_config(args.dest, args.h3_res, args.warehouse)
+
+    if args.extract:
+        print("-> --extract is a stub; run pipeline/extract/*.py directly for now.")
+    if args.transform:
+        return run_transform(cfg, args.only)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

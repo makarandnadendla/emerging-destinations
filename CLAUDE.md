@@ -1,8 +1,8 @@
 # Emerging Destinations — Project Notes
 
-Portfolio project: does origin-country development predict how far off the beaten path travelers go inside Georgia and Vietnam? (acclimation vs. status-good vs. heterogeneous hypotheses)
+Portfolio project: does origin-country development (HDI) predict how far off the beaten path travelers go *within Japan* — sticking to the canonical "Golden Route" beaten path vs. venturing to off-the-beaten-path regions? (acclimation vs. status-good vs. heterogeneous hypotheses)
 
-Current state: **visualization prototype only** — all data is mocked. The real Flickr extraction has not been run.
+Current state: **real pipeline built and run for Japan.** Stage E (extraction) is complete — millions of geotagged Flickr photos, the user/geocode tables, OSM POIs, indicator panels, and a global per-user photo pull all live in `data/japan.duckdb` (gitignored). Stage T (`pipeline/run.py --transform`) builds the analysis warehouse (`data/warehouse_japan.duckdb`; current sizes live in its `agg_summary` table, column semantics in `DATA_DICTIONARY.md`). Stage A causal machinery (`analysis/`) exists: DAG, DoWhy refutation battery, and design refutations. The `prototype/` slide deck still renders **mocked** data — wiring it to the real aggregates is pending.
 
 The prototype is a **horizontal slide deck**: 6 full-viewport slides you swipe through on mobile or arrow-key through on desktop. The map views render as smooth MapLibre **heatmaps** (clipped to hand-simplified country outlines), not discrete hex polygons.
 
@@ -64,17 +64,28 @@ python -m http.server 8910
 ```
 Emerging Destinations Project/
 ├── CLAUDE.md                 ← you are here
-├── prototype/
-│   ├── index.html            page structure + section markup
-│   ├── style.css             design tokens, responsive breakpoints
-│   ├── data.js               seedable mock generator (5,000 trips + hex grid utilities)
-│   ├── app.js                rendering: MapLibre maps + Observable Plot charts + filter wiring
-│   └── README.md             prototype-specific docs
+├── SPEC.md                   full pre-registered study spec
+├── DATA_DICTIONARY.md        Stage-T warehouse column reference
+├── pipeline/
+│   ├── config.yaml           destination + window + thresholds (single source of truth)
+│   ├── run.py                Stage-T orchestrator (runs sql/01..10 into the warehouse)
+│   ├── extract/              Stage-E extractors (Flickr quadtree, users, geocodes,
+│   │                         global photo pull, OSM POIs, indicators, tourism B1)
+│   └── sql/                  numbered warehouse transforms (01_users … 10_aggregates)
+├── analysis/
+│   ├── generate_dag.py       causal DAG -> dag.html (static SVG)
+│   ├── refute.py             pre-registered DoWhy refutation battery (7 tests)
+│   └── sensitivity.py        DAG node-specific refutations (negative control,
+│                             E-value, home-resolution agreement)
+├── prototype/                slide-deck viz (STILL MOCKED DATA)
+│   ├── index.html / style.css / data.js / app.js / README.md
+├── data/                     gitignored: raw + warehouse DuckDBs, parquet caches
 └── .claude/
     └── launch.json           dev-server config consumed by the preview tool
 ```
 
-No backend, no build step, no npm. All libraries via CDN: Observable Plot 0.6, MapLibre GL 4.7, Turf.js 7, D3 7.
+Python side is uv-managed (`pyproject.toml` / `uv.lock`; run things with `uv run python …`).
+The prototype itself has no build step — all its libraries via CDN: Observable Plot 0.6, MapLibre GL 4.7, Turf.js 7, D3 7.
 
 ---
 
@@ -83,7 +94,7 @@ No backend, no build step, no npm. All libraries via CDN: Observable Plot 0.6, M
 | Source | Decision |
 |---|---|
 | Flickr API (`photos.search` + `people.getInfo`) | Use it. Quadtree extraction needed (250-result geo cap, 4000-result query cap). |
-| OSM POIs | Use Geofabrik PBF snapshots + osmium filter — Overpass is too flaky for batch. |
+| OSM POIs | Use Geofabrik **Japan** PBF (<https://download.geofabrik.de/asia/japan-latest.osm.pbf>, ~2.3 GB) + osmium filter — Overpass is too flaky for batch. |
 | World Bank `wbgapi` | Use for GDP/cap PPP, Logistics Performance Index, governance indicators. |
 | UNDP HDR API | Use for HDI / IHDI. |
 | WHO GHO API | Use for UHC service coverage index, sanitation. |
@@ -94,10 +105,10 @@ No backend, no build step, no npm. All libraries via CDN: Observable Plot 0.6, M
 
 ## Hypotheses the real analysis will test
 
-- **H1 acclimation:** high-HDI origin → less remote travel (comfort-seeking)
-- **H2 status-good:** high-HDI origin → more remote travel (adventure as status)
-- **H3 heterogeneous:** sign depends on destination / origin-region (this prototype mocks H3 — Vietnam shows H2 behavior, Georgia shows H1)
-- **H4 null:** origin development indicators don't meaningfully predict remoteness exposure
+- **H1 acclimation:** high-HDI origin → less remote travel within Japan (sticks to the Golden Route, comfort-seeking)
+- **H2 status-good:** high-HDI origin → more remote travel within Japan (off-path as status/adventure)
+- **H3 heterogeneous:** sign depends on origin-region (this prototype mocks H3 — long-haul Western origins trend one way, regional East-Asian origins another)
+- **H4 null:** origin development indicators don't meaningfully predict within-Japan remoteness exposure
 
 ---
 
