@@ -277,7 +277,9 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str, dest_iso3: str) 
     # Destination-excluded agreement: the analysis definition (01_users.sql) —
     # the destination's tally is dropped from the home vote unless the user's
     # stated home IS the destination. Recomputed here from user_country_counts
-    # with the SAME deterministic tie-break as 01 (count DESC, then ISO3);
+    # with the SAME deterministic tie-break as 01 (count DESC, then ISO3) and the
+    # SAME SAR correction (Nominatim labels Hong Kong/Macau strings CHN; the
+    # display_name carries the territory, so stated is re-labeled HKG/MAC);
     # denominator = users with a stated country AND a non-null effective modal.
     n_agree_x, n_modal_x = con.execute("""
         WITH modal AS (
@@ -292,13 +294,21 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str, dest_iso3: str) 
             GROUP BY user_id
         ),
         eff AS (
-            SELECT g.country_iso3 AS stated,
-                   CASE WHEN g.country_iso3 = ? THEN m.modal_all
-                        ELSE m.modal_excl END AS modal
-            FROM users u
-            JOIN user_geocodes g ON g.location_raw = u.location_raw
-            JOIN modal m ON m.user_id = u.user_id
-            WHERE g.country_iso3 IS NOT NULL
+            SELECT stated,
+                   CASE WHEN stated = ? THEN modal_all ELSE modal_excl END AS modal
+            FROM (
+                SELECT CASE
+                           WHEN g.display_name ILIKE '%hong kong%'  THEN 'HKG'
+                           WHEN g.display_name ILIKE '%macau%'
+                             OR g.display_name ILIKE '%macao%'      THEN 'MAC'
+                           ELSE g.country_iso3
+                       END AS stated,
+                       m.modal_all, m.modal_excl
+                FROM users u
+                JOIN user_geocodes g ON g.location_raw = u.location_raw
+                JOIN modal m ON m.user_id = u.user_id
+                WHERE g.country_iso3 IS NOT NULL
+            )
         )
         SELECT COUNT(*) FILTER (WHERE stated = modal), COUNT(modal) FROM eff
     """, [dest_iso3, dest_iso3]).fetchone()

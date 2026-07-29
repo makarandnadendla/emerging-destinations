@@ -30,10 +30,23 @@ WITH photo_agg AS (
     GROUP BY p.user_id
 ),
 geo AS (
+    -- SAR correction: Nominatim/OSM models Hong Kong and Macau as admin regions
+    -- of China (country_code 'cn'), so EVERY HK/Macau profile string geocodes to
+    -- CHN — assigning Hong Kongers China's HDI (0.754) instead of HKG's (0.939)
+    -- and guaranteeing a stated-vs-modal conflict (the modal side's GeoNames
+    -- data says HKG). The display_name names the territory correctly in every
+    -- audited row (53 strings, 236 users, 0 false positives at this vintage), so
+    -- re-label from it. Hong Kong FIRST: the HK-Zhuhai-Macao Bridge display
+    -- contains both territories.
     SELECT
         u.user_id,
         u.location_raw,
-        g.country_iso3 AS stated_country_iso
+        CASE
+            WHEN g.display_name ILIKE '%hong kong%'  THEN 'HKG'
+            WHEN g.display_name ILIKE '%macau%'
+              OR g.display_name ILIKE '%macao%'      THEN 'MAC'
+            ELSE g.country_iso3
+        END AS stated_country_iso
     FROM raw.users u
     LEFT JOIN raw.user_geocodes g ON g.location_raw = u.location_raw
 ),
