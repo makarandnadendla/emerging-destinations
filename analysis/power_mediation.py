@@ -25,15 +25,15 @@ DECISION RECORD (run 2026-09, 300 reps/cell, cohort n=2,234 with HDI):
                   still <=42%. MDE at 80% power is 2-7x the plausible effect.
     DECISION:     the mediation decomposition is NOT investigated further at
                   this time — the estimate is unstable at our sample size and
-                  reporting it would be irresponsible. What survives: the
-                  within-user dose-response (b-path) as a standalone
-                  descriptive finding; the a-path reported descriptively with
-                  its CI; and the FIRST-TRIP headline outcome (a controlled
-                  direct effect at order = 1, selection-free because everyone
-                  has a first trip) as the design-based answer to repeat-trip
-                  contamination. Revisit only with a substantially larger
-                  cohort (the curves suggest >~30x) or an external mediator
-                  measure.
+                  reporting it would be irresponsible. Per the same decision,
+                  the within-user trip-order estimate is NOT reported as an
+                  analysis finding either: the values above remain solely as
+                  this gate's calibration inputs. The FIRST-TRIP headline
+                  outcome (a controlled direct effect at order = 1,
+                  selection-free because everyone has a first trip) is the
+                  design-based answer to repeat-trip contamination. Revisit
+                  only with a substantially larger cohort (the curves suggest
+                  >~30x) or an external mediator measure.
 
 Usage:
     uv run python analysis/power_mediation.py                # full gate (300 reps)
