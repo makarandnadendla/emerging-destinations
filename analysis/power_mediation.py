@@ -24,21 +24,16 @@ DECISION RECORD (run 2026-09, 300 reps/cell, cohort n=2,234 with HDI):
                   coin flip (50-53% positive). At 8x our cohort, power is
                   still <=42%. MDE at 80% power is 2-7x the plausible effect.
     DECISION:     the mediation decomposition is NOT investigated further at
-                  this time — the product estimate is unstable at our sample
-                  size and reporting it would be irresponsible. The
-                  WITHIN-USER trip-order dose-response, however, IS retained
-                  as a standalone descriptive finding (user decision 2026-09,
-                  reversing an earlier removal): it is a within-person
-                  fixed-effects contrast whose identifying assumptions were
-                  vetted before estimation — user-level confounders
-                  difference out, and it never touches the fragile a-path —
-                  so it does not inherit the product estimator's instability.
-                  The FIRST-TRIP headline outcome (a controlled direct effect
-                  at order = 1, selection-free because everyone has a first
-                  trip) remains the design-based answer to repeat-trip
-                  contamination. Revisit the decomposition only with a
-                  substantially larger cohort (the curves suggest >~30x) or
-                  an external mediator measure.
+                  this time — the estimate is unstable at our sample size and
+                  reporting it would be irresponsible. Per the same decision,
+                  the within-user trip-order estimate is NOT reported as an
+                  analysis finding either: the values above remain solely as
+                  this gate's calibration inputs. The FIRST-TRIP headline
+                  outcome (a controlled direct effect at order = 1,
+                  selection-free because everyone has a first trip) is the
+                  design-based answer to repeat-trip contamination. Revisit
+                  only with a substantially larger cohort (the curves suggest
+                  >~30x) or an external mediator measure.
 
 Usage:
     uv run python analysis/power_mediation.py                # full gate (300 reps)
