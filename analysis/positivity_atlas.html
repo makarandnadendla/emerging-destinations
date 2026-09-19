@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HDI Overlap Atlas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;700&display=swap">
+<style>
+:root{
+  --bg:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --border:rgba(11,11,11,.10);
+  --blue:#2a78d6; --blue-soft:#9ec5f4; --good:#0ca30c;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --border:rgba(255,255,255,.10);
+    --blue:#3987e5; --blue-soft:#1c5cab; --good:#0ca30c;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --border:rgba(255,255,255,.10);
+  --blue:#3987e5; --blue-soft:#1c5cab; --good:#0ca30c;
+}
+body{background:var(--bg); color:var(--ink);
+  font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;}
+.wrap{max-width:880px; margin:0 auto; padding:28px 16px 48px;}
+.eyebrow{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;}
+h1{font-family:"Shippori Mincho",Georgia,serif; font-weight:700; font-size:clamp(26px,4.4vw,38px);
+  margin:0 0 10px; text-wrap:balance;}
+h2{font-size:15px; margin:26px 0 4px;}
+.sub{color:var(--ink2); max-width:66ch; margin:0 0 8px;}
+.sub em{font-style:normal; font-weight:600; color:var(--ink);}
+.panel{background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:14px; margin-top:10px; overflow-x:auto;}
+svg{display:block;}
+svg text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
+.axis{fill:var(--muted); font-size:10px;}
+.gridline{stroke:var(--grid); stroke-width:1;}
+.iso{fill:var(--muted); font-size:9.5px;}
+.regname{fill:var(--ink); font-size:12px; font-weight:700;}
+.regstat{fill:var(--ink2); font-size:10.5px;}
+.chip-ok{fill:var(--good); font-size:9.5px; font-weight:700; letter-spacing:.06em;}
+.chip-no{fill:var(--muted); font-size:9.5px; font-weight:700; letter-spacing:.06em;}
+.traj{stroke:var(--blue-soft); stroke-width:1.6;}
+.dot{fill:var(--blue);}
+.bar{fill:var(--blue);}
+.zero{stroke:var(--muted); stroke-dasharray:3 3; stroke-width:1; fill:none;}
+.celln{font-size:10.5px; font-variant-numeric:tabular-nums;}
+.mini{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px;}
+.note{color:var(--muted); font-size:12px; max-width:74ch; margin-top:8px;}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Positivity / common support &middot; adjustment set: region &times; trip year</div>
+    <h1>HDI Overlap Atlas</h1>
+    <p class="sub">Positivity asks: <em>within every stratum we adjust on, does the treatment actually
+    vary?</em> With a continuous exposure (origin-country HDI) and a discrete adjustment set
+    (origin region &times; trip year), that means three checks: the treatment&rsquo;s real support inside
+    each region (Panel A — and it is honestly <em>discrete</em>: a handful of origin trajectories, not a
+    continuum), the occupancy of every region &times; year cell (Panel B), and the residual treatment
+    variation left after the adjustment set absorbs its share — what the estimator actually
+    identifies from (Panel C). Cohort: 2,234 users with year-matched HDI (Taiwan&rsquo;s 562 are
+    excluded — UNDP publishes no Taiwan HDI).</p>
+  </header>
+
+  <h2>A &middot; Treatment support, region by region</h2>
+  <p class="sub">One row per origin: the line spans that country&rsquo;s HDI drift 2012&ndash;2019; dots are
+  origin-years sized by users. The gate (sd &ge; 0.02 and n &ge; 50) is printed per region.</p>
+  <div class="panel"><div id="pA"></div></div>
+
+  <h2>B &middot; Region &times; trip-year occupancy</h2>
+  <p class="sub">Every adjustment-set cell the year fixed effects rely on. Dashed cells are
+  empty; single-digit cells are positivity&rsquo;s thin ice.</p>
+  <div class="panel"><div id="pB"></div></div>
+
+  <h2>C &middot; Residualized treatment — the identifying variation</h2>
+  <p class="sub">HDI minus its region&times;year mean: the variation left for estimation after the
+  back-door set is absorbed. A spike at zero means the region contributes (almost) nothing.</p>
+  <div class="panel"><div class="mini" id="pC"></div></div>
+
+  <p class="note">Reading: North America (sd 0.004, two origins) and Oceania (sd 0.003) are
+  near&#8209;point&#8209;masses — no estimator can recover a within-region HDI slope there, which is why the
+  identification gate reports them descriptively only. East Asia clears the gate but its support is
+  <b>three origins</b> (CHN low, KOR/HKG high) — a two-point contrast, flagged as such by the
+  leave-one-origin-out check. Southeast Asia has the widest genuine support. In Panel B, East
+  Asia&rsquo;s 2018&ndash;19 cells (and everything outside the top four regions) run thin — the year
+  fixed effects lean on sparse cells there. Data: <code>user_features</code> (warehouse), adjustment
+  set per <code>analysis/dag.html</code>; gate thresholds from <code>analysis/estimate.py</code>.</p>
+</div>
+
+<script>const D={"regions":["Europe","North America","Southeast Asia","East Asia","Oceania","Latin America","Mid-East & Africa","South/Central Asia","Other"],"years":[2012,2013,2014,2015,2016,2017,2018,2019],"gate":{"Europe":{"users":840,"origins":27,"sd":0.0278,"ok":true},"North America":{"users":679,"origins":2,"sd":0.0037,"ok":false},"Southeast Asia":{"users":230,"origins":7,"sd":0.0989,"ok":true},"East Asia":{"users":223,"origins":3,"sd":0.092,"ok":true},"Oceania":{"users":160,"origins":2,"sd":0.0029,"ok":false},"Latin America":{"users":61,"origins":11,"sd":0.0433,"ok":true},"Mid-East & Africa":{"users":27,"origins":9,"sd":0.0674,"ok":false},"South/Central Asia":{"users":13,"origins":4,"sd":0.042,"ok":false},"Other":{"users":1,"origins":1,"sd":0.0,"ok":false}},"A":{"East Asia":[{"iso":"CHN","pts":[[2012,0.725,17],[2013,0.733,17],[2014,0.742,16],[2015,0.75,15],[2016,0.758,13],[2017,0.765,9],[2018,0.774,1]]},{"iso":"KOR","pts":[[2012,0.901,9],[2013,0.905,4],[2014,0.91,5],[2015,0.914,2],[2016,0.918,2],[2017,0.922,1]]},{"iso":"HKG","pts":[[2012,0.923,21],[2013,0.928,22],[2014,0.932,19],[2015,0.937,23],[2016,0.94,10],[2017,0.946,9],[2018,0.952,7],[2019,0.952,1]]}],"Europe":[{"iso":"UKR","pts":[[2012,0.789,1],[2016,0.78,1]]},{"iso":"SRB","pts":[[2016,0.806,1]]},{"iso":"ROU","pts":[[2015,0.823,2]]},{"iso":"BGR","pts":[[2013,0.815,1],[2017,0.829,1],[2018,0.832,1]]},{"iso":"RUS","pts":[[2013,0.83,2],[2014,0.831,1],[2015,0.833,2],[2016,0.835,2],[2017,0.838,1],[2018,0.845,2],[2019,0.847,1]]},{"iso":"HUN","pts":[[2016,0.851,1],[2017,0.853,1]]},{"iso":"PRT","pts":[[2012,0.844,1],[2013,0.849,1],[2016,0.859,3],[2017,0.864,1]]},{"iso":"HRV","pts":[[2017,0.862,1]]},{"iso":"SVK","pts":[[2015,0.861,1],[2018,0.868,1]]},{"iso":"GRC","pts":[[2012,0.874,1],[2016,0.884,1]]},{"iso":"POL","pts":[[2014,0.873,1],[2015,0.879,2],[2016,0.884,1],[2017,0.882,1]]},{"iso":"ITA","pts":[[2012,0.887,10],[2013,0.887,13],[2014,0.89,19],[2015,0.889,17],[2016,0.894,8],[2017,0.897,7],[2018,0.902,1],[2019,0.906,3]]},{"iso":"ESP","pts":[[2012,0.881,20],[2013,0.886,12],[2014,0.89,11],[2015,0.895,15],[2016,0.9,11],[2017,0.902,8],[2018,0.905,1],[2019,0.91,4]]},{"iso":"CZE","pts":[[2012,0.885,1],[2013,0.892,2],[2014,0.898,1],[2015,0.9,1],[2016,0.902,1],[2017,0.904,1]]},{"iso":"FRA","pts":[[2012,0.893,23],[2013,0.896,25],[2014,0.9,14],[2015,0.901,12],[2016,0.905,15],[2017,0.908,15],[2018,0.911,9],[2019,0.914,2]]},{"iso":"LUX","pts":[[2012,0.914,1],[2013,0.919,1],[2015,0.913,1],[2016,0.916,1],[2018,0.915,1]]},{"iso":"AUT","pts":[[2013,0.915,3],[2014,0.919,2],[2015,0.919,1],[2017,0.922,1],[2019,0.928,2]]},{"iso":"IRL","pts":[[2012,0.911,2],[2014,0.921,1],[2015,0.931,2],[2016,0.936,1]]},{"iso":"GBR","pts":[[2012,0.917,48],[2013,0.931,39],[2014,0.932,34],[2015,0.931,40],[2016,0.934,26],[2017,0.937,23],[2018,0.936,11],[2019,0.941,15]]},{"iso":"BEL","pts":[[2012,0.923,1],[2013,0.925,2],[2014,0.93,5],[2016,0.936,5],[2017,0.94,2],[2019,0.945,3]]},{"iso":"FIN","pts":[[2012,0.924,3],[2013,0.934,4],[2014,0.936,1],[2015,0.938,1],[2016,0.94,2]]},{"iso":"NLD","pts":[[2012,0.935,9],[2013,0.937,5],[2014,0.939,6],[2015,0.94,10],[2016,0.941,6],[2017,0.945,10],[2018,0.947,2],[2019,0.95,3]]},{"iso":"SWE","pts":[[2012,0.92,6],[2013,0.94,3],[2014,0.943,6],[2015,0.945,8],[2016,0.947,3],[2017,0.949,2],[2018,0.95,2]]},{"iso":"DNK","pts":[[2012,0.938,1],[2013,0.941,4],[2014,0.939,2],[2016,0.951,1],[2017,0.951,3],[2019,0.953,1]]},{"iso":"DEU","pts":[[2012,0.944,20],[2013,0.945,27],[2014,0.949,11],[2015,0.948,10],[2016,0.949,10],[2017,0.951,3],[2018,0.952,2],[2019,0.957,3]]},{"iso":"CHE","pts":[[2012,0.949,5],[2013,0.952,7],[2014,0.956,7],[2015,0.957,4],[2016,0.959,6],[2017,0.96,4],[2019,0.965,4]]},{"iso":"NOR","pts":[[2012,0.95,3],[2013,0.953,6],[2014,0.956,2],[2015,0.959,4],[2016,0.962,2],[2018,0.966,3]]}],"Latin America":[{"iso":"GTM","pts":[[2014,0.65,1]]},{"iso":"PRY","pts":[[2014,0.733,1]]},{"iso":"COL","pts":[[2012,0.748,2],[2013,0.76,1]]},{"iso":"VEN","pts":[[2014,0.77,1],[2017,0.749,1]]},{"iso":"BRA","pts":[[2012,0.758,5],[2013,0.762,4],[2014,0.765,4],[2015,0.764,3],[2016,0.765,1],[2017,0.77,4],[2018,0.774,1]]},{"iso":"MEX","pts":[[2012,0.764,2],[2013,0.765,3],[2014,0.769,2],[2015,0.773,2],[2016,0.778,1],[2017,0.781,2],[2019,0.788,1]]},{"iso":"TTO","pts":[[2012,0.796,1]]},{"iso":"CRI","pts":[[2014,0.802,1]]},{"iso":"URY","pts":[[2013,0.812,1]]},{"iso":"CHL","pts":[[2012,0.832,3],[2013,0.845,1],[2015,0.855,2],[2016,0.859,2],[2017,0.862,2]]},{"iso":"ARG","pts":[[2013,0.852,3],[2016,0.857,1],[2017,0.861,2]]}],"Mid-East & Africa":[{"iso":"EGY","pts":[[2012,0.689,1],[2013,0.695,1],[2017,0.72,1]]},{"iso":"ZAF","pts":[[2014,0.713,1],[2017,0.726,1]]},{"iso":"MUS","pts":[[2014,0.79,1]]},{"iso":"TUR","pts":[[2012,0.772,1],[2013,0.802,1],[2015,0.821,1],[2019,0.841,1]]},{"iso":"KWT","pts":[[2014,0.818,1],[2015,0.832,1]]},{"iso":"ARE","pts":[[2012,0.843,1],[2013,0.846,2],[2014,0.853,1],[2015,0.857,2]]},{"iso":"BHR","pts":[[2012,0.833,1],[2016,0.871,1]]},{"iso":"QAT","pts":[[2013,0.859,1]]},{"iso":"ISR","pts":[[2012,0.893,1],[2014,0.902,1],[2016,0.905,2],[2017,0.908,2]]}],"North America":[{"iso":"USA","pts":[[2012,0.923,107],[2013,0.925,129],[2014,0.926,93],[2015,0.928,73],[2016,0.929,69],[2017,0.931,39],[2018,0.934,17],[2019,0.936,22]]},{"iso":"CAN","pts":[[2012,0.927,24],[2013,0.93,31],[2014,0.932,16],[2015,0.932,15],[2016,0.933,18],[2017,0.935,17],[2018,0.935,4],[2019,0.937,5]]}],"Oceania":[{"iso":"NZL","pts":[[2012,0.929,3],[2013,0.933,4],[2014,0.932,3],[2015,0.934,3],[2016,0.938,5],[2019,0.938,1]]},{"iso":"AUS","pts":[[2012,0.938,30],[2013,0.935,20],[2014,0.937,28],[2015,0.938,16],[2016,0.939,20],[2017,0.94,19],[2018,0.945,2],[2019,0.947,6]]}],"Other":[{"iso":"PSE","pts":[[2013,0.706,1]]}],"South/Central Asia":[{"iso":"PAK","pts":[[2012,0.508,1]]},{"iso":"BGD","pts":[[2014,0.6,1]]},{"iso":"IND","pts":[[2012,0.609,3],[2013,0.615,3],[2014,0.625,2],[2015,0.633,1],[2017,0.649,1]]},{"iso":"UZB","pts":[[2014,0.703,1]]}],"Southeast Asia":[{"iso":"LAO","pts":[[2014,0.597,1],[2018,0.613,1]]},{"iso":"PHL","pts":[[2012,0.681,3],[2013,0.687,6],[2014,0.689,6],[2015,0.69,4],[2016,0.69,1],[2017,0.694,1],[2018,0.7,1]]},{"iso":"IDN","pts":[[2012,0.686,5],[2013,0.69,6],[2014,0.693,5],[2015,0.701,7],[2016,0.705,4],[2017,0.712,1],[2018,0.715,1]]},{"iso":"VNM","pts":[[2012,0.698,1],[2015,0.717,2],[2016,0.723,1],[2019,0.744,1]]},{"iso":"THA","pts":[[2012,0.75,12],[2013,0.752,14],[2014,0.784,11],[2015,0.788,4],[2016,0.792,7],[2017,0.794,4],[2018,0.796,2]]},{"iso":"MYS","pts":[[2012,0.787,6],[2013,0.791,5],[2014,0.795,8],[2015,0.8,7],[2016,0.805,4],[2017,0.807,3],[2018,0.809,1]]},{"iso":"SGP","pts":[[2012,0.933,17],[2013,0.934,16],[2014,0.934,12],[2015,0.935,13],[2016,0.934,9],[2017,0.935,12],[2018,0.939,2],[2019,0.942,3]]}]},"B":{"Europe":[156,157,124,133,108,85,36,41],"North America":[131,160,109,88,87,56,21,27],"Southeast Asia":[44,47,43,37,26,21,8,4],"East Asia":[47,43,40,40,25,19,8,1],"Oceania":[33,24,31,19,25,19,2,7],"Latin America":[13,13,10,7,5,11,1,1],"Mid-East & Africa":[5,5,5,4,3,4,0,1],"South/Central Asia":[4,3,4,1,0,1,0,0],"Other":[0,1,0,0,0,0,0,0]},"C":{"East Asia":{"hist":[0,9,0,13,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,7,0,0,0,2,18,0,1,25,62,9,0,10,0],"sd":0.0903,"p_lo":-0.1222,"p_hi":0.087},"Europe":{"hist":[1,3,5,5,2,2,2,6,1,1,3,15,85,73,73,39,8,9,71,194,29,88,76,31,15,0,0,0,0,0,0,0,0,0,0],"sd":0.0273,"p_lo":-0.0337,"p_hi":0.0333},"Latin America":{"hist":[0,0,0,0,0,0,0,1,1,1,0,5,12,3,7,2,0,2,0,7,2,0,0,3,0,1,4,9,0,0,0,0,0,0,0],"sd":0.0389,"p_lo":-0.0456,"p_hi":0.0586},"Mid-East & Africa":{"hist":[1,1,1,0,0,0,0,0,0,0,0,1,0,2,1,1,1,2,0,2,2,1,0,4,0,1,0,0,0,0,0,2,2,0,0],"sd":0.0617,"p_lo":-0.1109,"p_hi":0.0909},"North America":{"hist":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,575,104,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"sd":0.0017,"p_lo":-0.0012,"p_hi":0.004},"Oceania":{"hist":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,10,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"sd":0.0016,"p_lo":-0.0034,"p_hi":0.0008},"Other":{"hist":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"sd":NaN,"p_lo":0.0,"p_hi":0.0},"South/Central Asia":{"hist":[0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,2,0,5,0,0,0,3,0,0,0,0,0,0,1,0,0,0,0,0,0],"sd":0.0337,"p_lo":-0.0532,"p_hi":0.041},"Southeast Asia":{"hist":[1,2,1,0,0,5,0,15,0,14,0,0,7,10,15,12,8,0,2,0,1,0,0,0,0,3,0,0,12,0,0,0,0,0,0],"sd":0.0964,"p_lo":-0.1266,"p_hi":0.1343}},"bin_edges":[-0.105,-0.099,-0.093,-0.087,-0.081,-0.075,-0.069,-0.063,-0.057,-0.051,-0.045,-0.039,-0.033,-0.027,-0.021,-0.015,-0.009,-0.003,0.003,0.009,0.015,0.021,0.027,0.033,0.039,0.045,0.051,0.057,0.063,0.069,0.075,0.081,0.087,0.093,0.099,0.105],"thresholds":{"sd":0.02,"users":50}};</script>
+<script>
+(function(){
+  "use strict";
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent, text){
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    parent.appendChild(e); return e;
+  }
+  function title(parent, s){ el("title", {}, parent, s); }
+
+  // ---------- Panel A: origin trajectories ----------
+  (function(){
+    const W = 840, mL = 46, mR = 14, mT = 26;
+    let allH = [];
+    D.regions.forEach(r => (D.A[r]||[]).forEach(o => o.pts.forEach(p => allH.push(p[1]))));
+    const lo = Math.floor(Math.min(...allH)*20)/20 - 0.01,
+          hi = Math.ceil(Math.max(...allH)*20)/20 + 0.005;
+    const x = h => mL + (h-lo)/(hi-lo)*(W-mL-mR);
+    const rowH = 13, regH = 30, regGap = 10;
+    let Hn = mT;
+    D.regions.forEach(r => { Hn += regH + (D.A[r]||[]).length*rowH + regGap; });
+    const svg = el("svg", {viewBox:`0 0 ${W} ${Hn}`, width:"100%",
+                           "aria-label":"HDI support by region and origin"},
+                   document.getElementById("pA"));
+    for (let h = Math.ceil(lo*20)/20; h <= hi; h = +(h+0.05).toFixed(2)){
+      el("line", {x1:x(h), x2:x(h), y1:mT-6, y2:Hn-4, class:"gridline"}, svg);
+      el("text", {x:x(h), y:mT-12, "text-anchor":"middle", class:"axis"}, svg, h.toFixed(2));
+    }
+    let y = mT;
+    D.regions.forEach(r => {
+      const g = D.gate[r], origins = D.A[r]||[];
+      y += regH;
+      el("text", {x:2, y:y-12, class:"regname"}, svg, r);
+      el("text", {x:2, y:y-1, class:"regstat"}, svg,
+         `${g.users.toLocaleString()} users · ${g.origins} origins · HDI sd ${g.sd.toFixed(3)}`);
+      el("text", {x:W-mR, y:y-12, "text-anchor":"end",
+                  class:g.ok?"chip-ok":"chip-no"}, svg,
+         g.ok ? "IN SCOPE" : "DESCRIPTIVE ONLY");
+      origins.forEach(o => {
+        const hs = o.pts.map(p=>p[1]);
+        el("text", {x:mL-6, y:y+4, "text-anchor":"end", class:"iso"}, svg, o.iso);
+        el("line", {x1:x(Math.min(...hs)), x2:x(Math.max(...hs)),
+                    y1:y, y2:y, class:"traj"}, svg);
+        o.pts.forEach(p => {
+          const c = el("circle", {cx:x(p[1]), cy:y,
+                                  r:Math.min(6, 1.5+1.1*Math.sqrt(p[2])), class:"dot",
+                                  "fill-opacity":0.75}, svg);
+          title(c, `${o.iso} ${p[0]} — HDI ${p[1].toFixed(3)} — ${p[2]} user${p[2]>1?"s":""}`);
+        });
+        y += rowH;
+      });
+      y += regGap;
+    });
+  })();
+
+  // ---------- Panel B: region x year heatmap ----------
+  (function(){
+    const cw = 62, ch = 27, mL = 138, mT = 22;
+    const W = mL + cw*D.years.length + 8, Hn = mT + ch*D.regions.length + 6;
+    const svg = el("svg", {viewBox:`0 0 ${W} ${Hn}`, width:"100%", style:"max-width:700px",
+                           "aria-label":"Users per region and trip year"},
+                   document.getElementById("pB"));
+    const maxN = Math.max(...D.regions.flatMap(r => D.B[r]));
+    D.years.forEach((yr,j) =>
+      el("text", {x:mL+cw*j+cw/2, y:mT-8, "text-anchor":"middle", class:"axis"}, svg, yr));
+    D.regions.forEach((r,i) => {
+      el("text", {x:mL-8, y:mT+ch*i+ch/2+3.5, "text-anchor":"end", class:"regstat"}, svg, r);
+      D.B[r].forEach((n,j) => {
+        const X = mL+cw*j, Y = mT+ch*i;
+        if (n === 0){
+          el("rect", {x:X+1.5, y:Y+1.5, width:cw-3, height:ch-3, rx:4, class:"zero"}, svg);
+          el("text", {x:X+cw/2, y:Y+ch/2+3.5, "text-anchor":"middle", class:"axis"}, svg, "0");
+          return;
+        }
+        const a = 0.08 + 0.92*Math.log1p(n)/Math.log1p(maxN);
+        const rect = el("rect", {x:X+1.5, y:Y+1.5, width:cw-3, height:ch-3, rx:4,
+                       style:`fill:var(--blue); fill-opacity:${a.toFixed(3)}`}, svg);
+        title(rect, `${r} · ${D.years[j]} · ${n} users`);
+        el("text", {x:X+cw/2, y:Y+ch/2+3.5, "text-anchor":"middle", class:"celln",
+                    style:`fill:${a>0.62?"#ffffff":"var(--ink)"}`}, svg, n);
+      });
+    });
+  })();
+
+  // ---------- Panel C: residualized-treatment histograms ----------
+  (function(){
+    const holder = document.getElementById("pC");
+    const edges = D.bin_edges, W = 260, Hn = 96, mB = 18, mT = 24;
+    const x0 = edges[0], x1 = edges[edges.length-1];
+    const x = v => 6 + (v-x0)/(x1-x0)*(W-12);
+    D.regions.forEach(r => {
+      const c = D.C[r]; if (!c) return;
+      const g = D.gate[r];
+      const wrap = document.createElement("div");
+      holder.appendChild(wrap);
+      const svg = el("svg", {viewBox:`0 0 ${W} ${Hn}`, width:"100%",
+                             "aria-label":`Residual HDI distribution, ${r}`}, wrap);
+      const maxB = Math.max(1, ...c.hist);
+      el("text", {x:6, y:14, class:"regname", style:"font-size:11px"}, svg, r);
+      el("text", {x:W-6, y:14, "text-anchor":"end",
+                  class:g.ok?"chip-ok":"chip-no"}, svg,
+         `resid sd ${c.sd.toFixed(3)}`);
+      el("line", {x1:x(0), x2:x(0), y1:mT, y2:Hn-mB+3, class:"gridline"}, svg);
+      c.hist.forEach((n,i) => {
+        if (!n) return;
+        const bh = (Hn-mB-mT) * n/maxB;
+        const b = el("rect", {x:x(edges[i])+0.5, y:Hn-mB-bh,
+                    width:Math.max(1.5, x(edges[i+1])-x(edges[i])-1), height:bh, class:"bar",
+                    "fill-opacity":0.85}, svg);
+        title(b, `${r}: resid ${edges[i].toFixed(3)}..${edges[i+1].toFixed(3)} — ${n} users`);
+      });
+      [-0.1,-0.05,0,0.05,0.1].forEach(v =>
+        el("text", {x:x(v), y:Hn-4, "text-anchor":"middle", class:"axis"}, svg,
+           v===0?"0":(v>0?"+":"")+v.toFixed(2)));
+    });
+  })();
+})();
+</script>
+
+</body>
+</html>
