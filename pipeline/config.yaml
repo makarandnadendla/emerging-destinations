@@ -1,0 +1,60 @@
+# Pipeline configuration — single source of truth for destination + thresholds.
+# Switch the whole pipeline to another destination by changing `destination`.
+
+# Active destination. Must be a key under `destinations` below.
+destination: japan
+
+destinations:
+  japan:
+    name: Japan
+    iso2: JP
+    iso3: JPN
+    # WGS84 bbox: [min_lon, min_lat, max_lon, max_lat]
+    # Covers Yonaguni (SW, 122.9E) to NE Hokkaido (145.8E) and the Yaeyama/
+    # Okinawa south (24N) up to northern Hokkaido (45.5N). Deliberately excludes
+    # uninhabited far-flung specks (Minami-Torishima ~154E, Okinotorishima ~20N)
+    # which have no tourism-remoteness signal. Ogasawara (Chichijima ~27N/142E)
+    # IS included. Ocean tiles cost a handful of top-level queries then terminate.
+    bbox: [122.93, 24.04, 145.82, 45.55]
+    db_path: data/japan.duckdb
+    osm_pbf: data/cache/japan-latest.osm.pbf
+    osm_pois_parquet: data/cache/pois_raw_japan.parquet
+    warehouse_path: data/warehouse_japan.duckdb
+    geofabrik_url: https://download.geofabrik.de/asia/japan-latest.osm.pbf
+
+  georgia:
+    name: Georgia
+    iso2: GE
+    iso3: GEO
+    bbox: [40.00, 41.05, 46.75, 43.60]
+    db_path: data/georgia.duckdb
+    osm_pbf: data/cache/georgia-latest.osm.pbf
+    osm_pois_parquet: data/cache/pois_raw.parquet
+    warehouse_path: data/warehouse_georgia.duckdb
+    geofabrik_url: https://download.geofabrik.de/europe/georgia-latest.osm.pbf
+
+# --- Shared parameters (apply to whichever destination is active) ---
+
+# Country x year indicator panel (global; destination-agnostic).
+indicators_parquet: data/cache/indicators_raw.parquet
+
+# Time window (inclusive), pre-COVID + stable Flickr adoption.
+years: [2012, 2019]
+
+# H3 grid resolution. r6 ~= 36 km^2 hexes.
+h3_res: 6
+
+# Tourist-cohort inclusion thresholds.
+min_photos: 5
+min_cells: 2
+
+# Public-export suppression floor: origins with fewer cohort users than this
+# are dropped from agg_origin (an n=1 "mean" is that user's exact outcome).
+min_origin_users: 5
+
+# Flickr extraction mechanics (API-level, not destination-specific).
+flickr:
+  per_page: 500
+  subdivide_threshold: 3500   # under Flickr's 4000-per-query cap
+  min_bbox_side_deg: 0.005    # ~500 m; below this, bisect by time instead
+  rate_limit_sleep: 1.0

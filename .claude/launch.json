@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8910", "--directory", "prototype"],
       "port": 8910
+    },
+    {
+      "name": "analysis",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8911", "--directory", "analysis"],
+      "port": 8911
     }
   ]
 }

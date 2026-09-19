@@ -30,6 +30,9 @@ import duckdb
 import pycountry
 import requests
 
+from _common import active_db_path, load_dotenv
+
+
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 RATE_LIMIT_SLEEP = 1.1          # >= 1.0 per Nominatim ToS; 1.1 for safety
 RETRY_BACKOFF = [2, 4, 8, 16]   # respectful backoff; Nominatim rate-limits at 429
@@ -38,17 +41,6 @@ PROGRESS_EVERY = 25
 
 # Required by Nominatim ToS. Email is the project owner's contact.
 USER_AGENT = "emerging-destinations/0.0.1 (mailto:nn.chetta@gmail.com)"
-
-
-def load_dotenv(env_path: Path) -> None:
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 def init_geocodes_table(con: duckdb.DuckDBPyConnection) -> None:
@@ -180,12 +172,15 @@ def status_snapshot(con: duckdb.DuckDBPyConnection, label: str) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Geocode Flickr location_raw strings via Nominatim.")
-    p.add_argument("--db", type=Path, default=Path("data/flickr.duckdb"))
+    p.add_argument("--db", type=Path, default=None,
+                   help="Override DB path (default: active destination's db_path from config.yaml).")
     p.add_argument("--max-iters", type=int, default=None,
                    help="Cap queries this run (debug).")
     p.add_argument("--reset-errors", action="store_true",
                    help="Drop status='error' rows so they re-enter pending pool.")
     args = p.parse_args()
+    if args.db is None:
+        args.db = active_db_path()
 
     if not args.db.exists():
         sys.exit(f"ERROR: {args.db} not found. Run extract_flickr_photos.py + extract_flickr_users.py first.")

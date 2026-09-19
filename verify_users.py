@@ -7,7 +7,11 @@ try:
 except Exception:
     pass
 
-con = duckdb.connect("data/flickr.duckdb", read_only=True)
+# Follow the active destination from config.yaml so this always inspects the
+# DB the pipeline actually writes (was hardcoded to a stale georgia path).
+import yaml
+_cfg = yaml.safe_load(open("pipeline/config.yaml", encoding="utf-8"))
+con = duckdb.connect(_cfg["destinations"][_cfg["destination"]]["db_path"], read_only=True)
 distinct_locs = con.execute("""
     SELECT COUNT(DISTINCT location_raw)
     FROM users
