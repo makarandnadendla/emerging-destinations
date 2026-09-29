@@ -24,7 +24,7 @@ def load_env(path: Path) -> None:
         os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-load_env(Path(__file__).with_name(".env"))
+load_env(Path(__file__).resolve().parents[2] / ".env")
 
 REQUIRED = ["B2_KEY_ID", "B2_APPLICATION_KEY", "B2_BUCKET", "B2_ENDPOINT", "B2_REGION"]
 missing = [k for k in REQUIRED if not os.environ.get(k)]
