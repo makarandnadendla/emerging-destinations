@@ -29,3 +29,6 @@ Thumbs.db
 
 # Mocked-data design predecessor; do not publish
 prototype/
+
+# One-off probes and recovery scripts (kept locally, never committed)
+scratch/

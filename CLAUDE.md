@@ -71,7 +71,9 @@ Emerging Destinations Project/
 │   ├── run.py                Stage-T orchestrator (runs sql/01..10 into the warehouse)
 │   ├── extract/              Stage-E extractors (Flickr quadtree, users, geocodes,
 │   │                         global photo pull, OSM POIs, indicators, tourism B1)
-│   └── sql/                  numbered warehouse transforms (01_users … 10_aggregates)
+│   ├── sql/                  numbered warehouse transforms (01_users … 10_aggregates)
+│   └── verify/               re-runnable data checks, run from the repo root
+│                             (stage spot-checks, clip & remoteness go/no-go)
 ├── analysis/
 │   ├── generate_dag.py       causal DAG -> dag.html (static SVG)
 │   ├── refute.py             pre-registered DoWhy refutation battery (7 tests)
