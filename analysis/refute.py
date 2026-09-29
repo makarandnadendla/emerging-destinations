@@ -63,6 +63,13 @@ import numpy as np
 import pandas as pd
 from dowhy import CausalModel
 
+try:
+    from analysis.config import CFG
+except ImportError:
+    from config import CFG
+
+SEED = CFG["seed"]
+
 
 # --------------------------------------------------------------------------- #
 # Pre-registered configuration (thresholds fixed before the real estimate)
@@ -70,7 +77,7 @@ from dowhy import CausalModel
 @dataclass
 class RefuteConfig:
     num_simulations: int = 100          # bootstrap/subset/random-cause/placebo sims
-    random_seed: int = 20240608
+    random_seed: int = SEED
 
     # PASS thresholds -------------------------------------------------------- #
     # "should not change" refuters: relative change in the point estimate
@@ -135,7 +142,13 @@ def estimate_linear(model: CausalModel, identified_estimand):
     return model.estimate_effect(identified_estimand, method_name="backdoor.linear_regression")
 
 
-def dml_nuisance_models() -> dict:
+# Cross-fitting partitions for the DML (analysis/config.yaml): shared by the
+# pooled estimator (estimate.py), the DoWhy-wrapped battery path below, and the
+# nuisance tuner's CV (tune_dml.py) so the fold scheme cannot diverge.
+DML_CV = CFG["dml"]["cv"]
+
+
+def dml_nuisance_models(tuned: bool = False) -> dict:
     """Stage-A DML nuisance models (user decision, 2026-07): both nuisances
     default to econml's 'auto' model selection.
 
@@ -145,15 +158,34 @@ def dml_nuisance_models() -> dict:
     model — the continuous analogue of the propensity — and model_y is the
     outcome model. NOTE: the linear final stage estimates a single slope in
     HDI; the U-shape found in the assumption-audit EDA is handled by a
-    binned/spline sensitivity spec, not by the headline."""
-    return {"model_y": "auto", "model_t": "auto"}
+    binned/spline sensitivity spec, not by the headline.
+
+    tuned=True swaps in the Optuna-selected nuisances (predictive CV only) from
+    analysis/outputs/dml_nuisance_tuning.json, written by tune_dml.py. The
+    pre-registered default stays 'auto'; the tuned spec is a robustness row."""
+    if not tuned:
+        default = CFG["dml"]["nuisances"]
+        return {"model_y": default, "model_t": default}
+    import json
+    from pathlib import Path
+    path = Path(__file__).resolve().parent / "outputs" / "dml_nuisance_tuning.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found — run `uv run python analysis/tune_dml.py` first.")
+    try:
+        from analysis.tune_dml import build_model
+    except ImportError:
+        from tune_dml import build_model
+    spec = json.loads(path.read_text())
+    return {k: build_model(spec[k]["family"], spec[k]["params"])
+            for k in ("model_y", "model_t")}
 
 
 def estimate_dml(model: CausalModel, identified_estimand, **init_overrides):
     """Debiased-ML estimate via econml's LinearDML (DoWhy-wrapped so the
     refutation battery can re-run it): 'auto' nuisances + linear final stage
     with statsmodels inference. Continuous treatment."""
-    init = {**dml_nuisance_models(), "random_state": 20240608}
+    init = {**dml_nuisance_models(), "cv": DML_CV, "random_state": SEED}
     init.update(init_overrides)
     return model.estimate_effect(
         identified_estimand,

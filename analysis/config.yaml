@@ -1,0 +1,21 @@
+# Stage-A analysis defaults — single source of truth for the analysis/ scripts
+# (mirrors pipeline/config.yaml for Stage T). Scripts read this at import; CLI
+# flags override per run where a script exposes one (e.g. estimate.py --gap-days).
+# Items marked PRE-REGISTERED are commitments recorded in SPEC.md — amend the
+# spec if you change them; never after seeing estimates.
+
+warehouse: data/warehouse_japan.duckdb
+seed: 20240608            # every RNG: estimators, CV folds, Optuna sampler
+
+estimation:
+  gap_days: 30            # trip segmentation rule (sensitivities: 14 / 60)
+  contrast: 0.10          # effects reported per +0.10 HDI
+  min_hdi_sd: 0.02        # PRE-REGISTERED identification-gate threshold
+  min_region_users: 50    # PRE-REGISTERED identification-gate threshold
+
+dml:
+  cv: 4                   # cross-fitting partitions (user decision, 2026-09)
+  nuisances: auto         # default nuisance spec; Optuna-tuned is a robustness row
+
+tuning:
+  trials: 100             # Optuna trials per nuisance (tune_dml.py)

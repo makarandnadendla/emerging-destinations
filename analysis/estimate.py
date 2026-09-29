@@ -36,6 +36,8 @@ Design decisions carried from the EDA + conversation record:
 Usage:
     uv run python analysis/estimate.py --selftest    # synthetic machinery check
     uv run python analysis/estimate.py --run         # first real estimates
+    uv run python analysis/estimate.py --run --tuned-nuisances
+        # adds a pooled-DML robustness row using tune_dml.py's Optuna nuisances
 """
 from __future__ import annotations
 
@@ -50,20 +52,23 @@ import numpy as np
 import pandas as pd
 
 try:
-    from analysis.refute import dml_nuisance_models
+    from analysis.config import CFG
+    from analysis.refute import DML_CV, dml_nuisance_models
     from analysis.sensitivity import _adjusted_coef as adjusted_coef
 except ImportError:
-    from refute import dml_nuisance_models
+    from config import CFG
+    from refute import DML_CV, dml_nuisance_models
     from sensitivity import _adjusted_coef as adjusted_coef
 
-WAREHOUSE = "data/warehouse_japan.duckdb"
-SEED = 20240608
-GAP_DAYS = 30            # trip segmentation rule (sensitivities: 14 / 60)
-CONTRAST = 0.10          # effects reported per +0.10 HDI
+# Defaults live in analysis/config.yaml (single source of truth).
+WAREHOUSE = CFG["warehouse"]
+SEED = CFG["seed"]
+GAP_DAYS = CFG["estimation"]["gap_days"]        # trip rule (sensitivities: 14 / 60)
+CONTRAST = CFG["estimation"]["contrast"]        # effects reported per +0.10 HDI
 
 # --- the stated scope condition (pre-registered thresholds) -----------------
-MIN_HDI_SD = 0.02        # below this, within-region HDI is effectively constant
-MIN_REGION_USERS = 50    # below this, a region-specific slope is not credible
+MIN_HDI_SD = CFG["estimation"]["min_hdi_sd"]            # below: HDI effectively constant
+MIN_REGION_USERS = CFG["estimation"]["min_region_users"]  # below: slope not credible
 
 # Origin -> region (Stage-A pinned artifact; promoted from the assumption EDA).
 REGIONS = {}
@@ -123,6 +128,9 @@ def load_frame(gap_days: int = GAP_DAYS) -> pd.DataFrame:
     con.close()
 
     df["region"] = df.origin_iso.map(REGIONS).fillna("Other")
+    # DuckDB row order is nondeterministic; pin it so seeded fold splits
+    # (tune_dml CV, LinearDML cross-fitting) are exactly reproducible.
+    df = df.sort_values("user_id_hash").reset_index(drop=True)
     n0 = len(df)
     df = df.dropna(subset=["hdi", "y_first_trip"]).copy()
     print(f"-> frame: {n0:,} cohort users; {len(df):,} with HDI + first-trip Y "
@@ -219,17 +227,19 @@ def run_within_region(df: pd.DataFrame, outcome: str, label: str,
 # --------------------------------------------------------------------------- #
 # Tier 2 — pooled LinearDML secondary (self-localizing; labeled)
 # --------------------------------------------------------------------------- #
-def run_pooled_dml(df: pd.DataFrame, outcome: str, label: str) -> None:
+def run_pooled_dml(df: pd.DataFrame, outcome: str, label: str,
+                   tuned: bool = False) -> None:
     from econml.dml import LinearDML
     d = df.dropna(subset=[outcome])
     Y = d[outcome].to_numpy(float)
     T = d.hdi.to_numpy(float)
     W = pd.get_dummies(d[["region"]].assign(yr=d.trip_year.astype(int).astype(str)),
                        drop_first=True, dtype=float)
-    est = LinearDML(**dml_nuisance_models(), cv=3, random_state=SEED)
+    est = LinearDML(**dml_nuisance_models(tuned=tuned), cv=DML_CV, random_state=SEED)
     est.fit(Y, T, X=None, W=W)
     lo, hi = est.ate_interval(T0=0.0, T1=CONTRAST, alpha=0.05)
-    print(f"\n--- SECONDARY (pooled LinearDML, 'auto' nuisances): {label} ---")
+    nuis = "Optuna-tuned nuisances (robustness)" if tuned else "'auto' nuisances"
+    print(f"\n--- SECONDARY (pooled LinearDML, {nuis}): {label} ---")
     print(f"  ATE per +{CONTRAST:.2f} HDI: {est.ate(T0=0.0, T1=CONTRAST):+.4f} "
           f"[95% CI {lo:+.4f}, {hi:+.4f}]  (n={len(d):,}; dominated by regions "
           f"with real HDI variation — DML self-localizes)")
@@ -302,6 +312,9 @@ def main() -> int:
     p.add_argument("--run", action="store_true",
                    help="Produce the first real estimates (headline + sensitivities).")
     p.add_argument("--gap-days", type=int, default=GAP_DAYS)
+    p.add_argument("--tuned-nuisances", action="store_true",
+                   help="Pooled DML also runs with the Optuna-tuned nuisances "
+                        "from tune_dml.py (robustness row; default stays 'auto').")
     args = p.parse_args()
     if args.selftest:
         return selftest()
@@ -318,6 +331,8 @@ def main() -> int:
                           "SENSITIVITY: pooled all-trips outcome",
                           in_scope)
         run_pooled_dml(df, "y_first_trip", "first-trip outcome")
+        if args.tuned_nuisances:
+            run_pooled_dml(df, "y_first_trip", "first-trip outcome", tuned=True)
         return 0
     print("Nothing to do: pass --selftest or --run.")
     return 0
