@@ -147,8 +147,11 @@ def estimate_linear(model: CausalModel, identified_estimand):
 # nuisance tuner's CV (tune_dml.py) so the fold scheme cannot diverge.
 DML_CV = CFG["dml"]["cv"]
 
+# Optuna-tuned nuisance spec (written by tune_dml.py, read by the 'tuned' rung).
+TUNING_JSON = Path(__file__).resolve().parent / "outputs" / "dml_nuisance_tuning.json"
 
-def dml_nuisance_models(tuned: bool = False) -> dict:
+
+def dml_nuisance_models(spec: str = "auto") -> dict:
     """Stage-A DML nuisance models (user decision, 2026-07): both nuisances
     default to econml's 'auto' model selection.
 
@@ -160,25 +163,32 @@ def dml_nuisance_models(tuned: bool = False) -> dict:
     HDI; the U-shape found in the assumption-audit EDA is handled by a
     binned/spline sensitivity spec, not by the headline.
 
-    tuned=True swaps in the Optuna-selected nuisances (predictive CV only) from
-    analysis/outputs/dml_nuisance_tuning.json, written by tune_dml.py. The
-    pre-registered default stays 'auto'; the tuned spec is a robustness row."""
-    if not tuned:
+    spec picks the rung on the estimator-complexity ladder:
+      'auto'   — pre-registered default (econml's CV bake-off; analysis/config.yaml)
+      'linear' — plain OLS nuisances: the original Robinson partialling-out
+                 estimator, still cross-fit. Zero model selection.
+      'tuned'  — Optuna-selected nuisances (predictive CV only) from
+                 analysis/outputs/dml_nuisance_tuning.json (tune_dml.py);
+                 reported as a robustness row, never the default."""
+    if spec == "auto":
         default = CFG["dml"]["nuisances"]
         return {"model_y": default, "model_t": default}
-    import json
-    from pathlib import Path
-    path = Path(__file__).resolve().parent / "outputs" / "dml_nuisance_tuning.json"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"{path} not found — run `uv run python analysis/tune_dml.py` first.")
-    try:
-        from analysis.tune_dml import build_model
-    except ImportError:
-        from tune_dml import build_model
-    spec = json.loads(path.read_text())
-    return {k: build_model(spec[k]["family"], spec[k]["params"])
-            for k in ("model_y", "model_t")}
+    if spec == "linear":
+        from sklearn.linear_model import LinearRegression
+        return {"model_y": LinearRegression(), "model_t": LinearRegression()}
+    if spec == "tuned":
+        import json
+        if not TUNING_JSON.exists():
+            raise FileNotFoundError(
+                f"{TUNING_JSON} not found — run `uv run python analysis/tune_dml.py` first.")
+        try:
+            from analysis.tune_dml import build_model
+        except ImportError:
+            from tune_dml import build_model
+        best = json.loads(TUNING_JSON.read_text())
+        return {k: build_model(best[k]["family"], best[k]["params"])
+                for k in ("model_y", "model_t")}
+    raise ValueError(f"unknown nuisance spec {spec!r}")
 
 
 def estimate_dml(model: CausalModel, identified_estimand, **init_overrides):

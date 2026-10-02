@@ -20,10 +20,19 @@ Estimators:
     negative control runs on the identical machinery). Fragility is surfaced by
     leave-one-origin-out (LOO): slope range + sign-flip flag. Two-origin regions
     (East Asia = CHN vs KOR) cannot run LOO — stated in the output.
-  * SECONDARY (pooled): econml LinearDML, nuisances 'auto'
-    (refute.dml_nuisance_models — shared with the DoWhy battery via
-    refute.estimate_dml). Continuous HDI; region dummies in W. Pooled ATE is
-    dominated by regions with real HDI variation (DML self-localizes: the
+  * SECONDARY (pooled): an ESTIMATOR-COMPLEXITY LADDER on one frame —
+      rung 1: pooled OLS on HDI + region + year dummies, origin-clustered
+              (one-step adjustment; no orthogonalization or cross-fitting);
+      rung 2: LinearDML with plain LINEAR nuisances (Robinson partialling-out,
+              cross-fit at DML_CV; zero model selection);
+      rung 3: LinearDML with 'auto' nuisances (pre-registered secondary;
+              refute.dml_nuisance_models — shared with the DoWhy battery via
+              refute.estimate_dml);
+      rung 4: Optuna-selected nuisances (robustness) — runs automatically
+              whenever tune_dml.py's tuning JSON exists, else skipped with a note.
+    Adjacent-rung differences isolate what cross-fitting and flexible
+    nuisances each contribute. Continuous HDI; region dummies in W. Pooled ATE
+    is dominated by regions with real HDI variation (DML self-localizes: the
     residualized treatment is ~0 where HDI doesn't vary) — labeled as such.
 
 Design decisions carried from the EDA + conversation record:
@@ -36,8 +45,8 @@ Design decisions carried from the EDA + conversation record:
 Usage:
     uv run python analysis/estimate.py --selftest    # synthetic machinery check
     uv run python analysis/estimate.py --run         # first real estimates
-    uv run python analysis/estimate.py --run --tuned-nuisances
-        # adds a pooled-DML robustness row using tune_dml.py's Optuna nuisances
+        # (the Optuna-tuned pooled-DML rung joins automatically whenever
+        #  analysis/outputs/dml_nuisance_tuning.json exists — see tune_dml.py)
 """
 from __future__ import annotations
 
@@ -53,11 +62,11 @@ import pandas as pd
 
 try:
     from analysis.config import CFG
-    from analysis.refute import DML_CV, dml_nuisance_models
+    from analysis.refute import DML_CV, TUNING_JSON, dml_nuisance_models
     from analysis.sensitivity import _adjusted_coef as adjusted_coef
 except ImportError:
     from config import CFG
-    from refute import DML_CV, dml_nuisance_models
+    from refute import DML_CV, TUNING_JSON, dml_nuisance_models
     from sensitivity import _adjusted_coef as adjusted_coef
 
 # Defaults live in analysis/config.yaml (single source of truth).
@@ -225,24 +234,47 @@ def run_within_region(df: pd.DataFrame, outcome: str, label: str,
 
 
 # --------------------------------------------------------------------------- #
-# Tier 2 — pooled LinearDML secondary (self-localizing; labeled)
+# Tier 2 — pooled secondary: an estimator-complexity ladder on one frame.
+# Rungs (simple -> complex): OLS adjustment, LinearDML(linear), LinearDML(auto),
+# optionally LinearDML(tuned). Agreement across rungs shows the pooled number
+# is not an estimator artifact; disagreement localizes where complexity matters.
 # --------------------------------------------------------------------------- #
+def run_pooled_ols(df: pd.DataFrame, outcome: str, label: str) -> float:
+    """Simplest rung: OLS of Y on HDI + region + year dummies, origin-clustered
+    SEs — one-step parametric adjustment, no orthogonalization or cross-fitting.
+    Same machinery as the within-region headline (sensitivity._adjusted_coef)."""
+    d = df.dropna(subset=[outcome]).rename(columns={outcome: "_y"}).copy()
+    d["yr"] = d.trip_year.astype(int).astype(str)
+    beta, se, ci, p, dof = adjusted_coef(
+        d, outcome="_y", treatment="hdi", numeric=[], categorical=["region", "yr"],
+        cluster_col="origin_iso", ci_level=0.95)
+    print(f"\n--- SECONDARY rung 1 (pooled OLS, region+year adj, origin-clustered): {label} ---")
+    print(f"  ATE per +{CONTRAST:.2f} HDI: {beta * CONTRAST:+.4f} "
+          f"[95% CI {ci[0] * CONTRAST:+.4f}, {ci[1] * CONTRAST:+.4f}]  "
+          f"p={p:.3f} (dof={dof}, n={len(d):,})")
+    return beta * CONTRAST
+
+
 def run_pooled_dml(df: pd.DataFrame, outcome: str, label: str,
-                   tuned: bool = False) -> None:
+                   nuisances: str = "auto") -> float:
     from econml.dml import LinearDML
     d = df.dropna(subset=[outcome])
     Y = d[outcome].to_numpy(float)
     T = d.hdi.to_numpy(float)
     W = pd.get_dummies(d[["region"]].assign(yr=d.trip_year.astype(int).astype(str)),
                        drop_first=True, dtype=float)
-    est = LinearDML(**dml_nuisance_models(tuned=tuned), cv=DML_CV, random_state=SEED)
+    est = LinearDML(**dml_nuisance_models(nuisances), cv=DML_CV, random_state=SEED)
     est.fit(Y, T, X=None, W=W)
     lo, hi = est.ate_interval(T0=0.0, T1=CONTRAST, alpha=0.05)
-    nuis = "Optuna-tuned nuisances (robustness)" if tuned else "'auto' nuisances"
-    print(f"\n--- SECONDARY (pooled LinearDML, {nuis}): {label} ---")
-    print(f"  ATE per +{CONTRAST:.2f} HDI: {est.ate(T0=0.0, T1=CONTRAST):+.4f} "
+    rung = {"linear": "rung 2 (LinearDML, linear nuisances — Robinson)",
+            "auto": "rung 3 (LinearDML, 'auto' nuisances — pre-registered)",
+            "tuned": "rung 4 (LinearDML, Optuna-tuned nuisances — robustness)"}[nuisances]
+    ate = float(est.ate(T0=0.0, T1=CONTRAST))
+    print(f"\n--- SECONDARY {rung}: {label} ---")
+    print(f"  ATE per +{CONTRAST:.2f} HDI: {ate:+.4f} "
           f"[95% CI {lo:+.4f}, {hi:+.4f}]  (n={len(d):,}; dominated by regions "
           f"with real HDI variation — DML self-localizes)")
+    return ate
 
 
 # --------------------------------------------------------------------------- #
@@ -301,7 +333,22 @@ def selftest() -> int:
     print(f"[selftest] DoWhy-wrapped LinearDML('auto'): {float(e.value):+.4f} "
           f"(true +0.15)  -> {'OK' if ok_c else 'FAIL'}")
 
-    ok = ok_a and ok_b and ok_c
+    # (d) simple rungs of the pooled ladder recover a known effect
+    #     (true slope 0.3/unit HDI -> +0.0300 per +0.10)
+    nl = 1500
+    regl = rng.choice(["R1", "R2", "R3"], nl)
+    hdil = (0.7 + 0.1 * (regl == "R2") + 0.15 * (regl == "R3")
+            + rng.normal(0, 0.05, nl))
+    dfl = pd.DataFrame({"region": regl, "origin_iso": regl,
+                        "trip_year": rng.integers(2012, 2020, nl), "hdi": hdil,
+                        "y": 0.2 + 0.3 * hdil + rng.normal(0, 0.05, nl)})
+    b_ols = run_pooled_ols(dfl, "y", "selftest ladder DGP")
+    b_lin = run_pooled_dml(dfl, "y", "selftest ladder DGP", nuisances="linear")
+    ok_d = abs(b_ols - 0.03) < 0.005 and abs(b_lin - 0.03) < 0.005
+    print(f"[selftest] ladder rungs 1/2: OLS {b_ols:+.4f}, linear-DML {b_lin:+.4f} "
+          f"(true +0.0300)  -> {'OK' if ok_d else 'FAIL'}")
+
+    ok = ok_a and ok_b and ok_c and ok_d
     print(f"\nSELF-TEST {'OK' if ok else 'FAILED'}")
     return 0 if ok else 1
 
@@ -312,9 +359,6 @@ def main() -> int:
     p.add_argument("--run", action="store_true",
                    help="Produce the first real estimates (headline + sensitivities).")
     p.add_argument("--gap-days", type=int, default=GAP_DAYS)
-    p.add_argument("--tuned-nuisances", action="store_true",
-                   help="Pooled DML also runs with the Optuna-tuned nuisances "
-                        "from tune_dml.py (robustness row; default stays 'auto').")
     args = p.parse_args()
     if args.selftest:
         return selftest()
@@ -330,9 +374,14 @@ def main() -> int:
         run_within_region(df, "y_pooled",
                           "SENSITIVITY: pooled all-trips outcome",
                           in_scope)
+        run_pooled_ols(df, "y_first_trip", "first-trip outcome")
+        run_pooled_dml(df, "y_first_trip", "first-trip outcome", nuisances="linear")
         run_pooled_dml(df, "y_first_trip", "first-trip outcome")
-        if args.tuned_nuisances:
-            run_pooled_dml(df, "y_first_trip", "first-trip outcome", tuned=True)
+        if TUNING_JSON.exists():
+            run_pooled_dml(df, "y_first_trip", "first-trip outcome", nuisances="tuned")
+        else:
+            print(f"\n  [rung 4 skipped — {TUNING_JSON.name} not found; "
+                  f"run `uv run python analysis/tune_dml.py` to add it]")
         return 0
     print("Nothing to do: pass --selftest or --run.")
     return 0

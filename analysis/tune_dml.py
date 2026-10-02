@@ -21,8 +21,8 @@ alpha is tuned). This is a credibility upgrade, not a power upgrade.
 
 Output: analysis/outputs/dml_nuisance_tuning.json — best family + params + CV
 scores per nuisance, alongside the 'auto'-candidate baselines. Consumed by
-refute.dml_nuisance_models(tuned=True), which both estimate.py (--tuned-nuisances)
-and the DoWhy refutation battery share, so estimator and refuters cannot diverge.
+refute.dml_nuisance_models("tuned") via the shared chokepoint; estimate.py
+--run picks the tuned rung up automatically whenever this JSON exists.
 
 Usage:
     uv run python analysis/tune_dml.py               # trials from analysis/config.yaml
@@ -34,7 +34,6 @@ import argparse
 import json
 import sys
 import warnings
-from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
@@ -48,14 +47,13 @@ from sklearn.model_selection import KFold, cross_val_score
 try:
     from analysis.config import CFG
     from analysis.estimate import load_frame
-    from analysis.refute import DML_CV
+    from analysis.refute import DML_CV, TUNING_JSON as OUT_PATH
 except ImportError:
     from config import CFG
     from estimate import load_frame
-    from refute import DML_CV
+    from refute import DML_CV, TUNING_JSON as OUT_PATH
 
 SEED = CFG["seed"]
-OUT_PATH = Path(__file__).resolve().parent / "outputs" / "dml_nuisance_tuning.json"
 
 
 def build_model(family: str, params: dict):
@@ -146,7 +144,7 @@ def main() -> int:
     OUT_PATH.parent.mkdir(exist_ok=True)
     OUT_PATH.write_text(json.dumps(result, indent=2))
     print(f"\nwrote {OUT_PATH}")
-    print("consume via: uv run python analysis/estimate.py --run --tuned-nuisances")
+    print("estimate.py --run will now include the tuned rung automatically.")
     return 0
 
 
