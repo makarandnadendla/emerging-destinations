@@ -38,6 +38,12 @@ Estimators:
 Design decisions carried from the EDA + conversation record:
   * Outcome Y = FIRST-TRIP photo-weighted mean cell remoteness (headline);
     pooled all-trips Y and drop-stated/modal-conflicts are sensitivity specs.
+  * y_vin ROBUSTNESS ROW (pre-committed when yardstick_vintage.py returned
+    MATERIAL, cell rho=0.679): the first-trip outcome re-scored with the
+    2015-01-01 OSM vintage yardstick (same universe + formula as
+    05_cell_remoteness.sql). Runs whenever the vintage POI parquet exists;
+    reported with the mapping-completeness caveat (45.5% of cells had zero
+    mapped POIs in 2015; user-level r=0.973 between rulers).
   * Effects reported per +0.10 HDI. Trip gap rule 30d (sensitivities 14/60).
   * U-shape / between-region contrasts are DESCRIPTIVE results, reported
     separately — never folded into the causal coefficients.
@@ -53,6 +59,7 @@ from __future__ import annotations
 import argparse
 import sys
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
@@ -79,6 +86,10 @@ CONTRAST = CFG["estimation"]["contrast"]        # effects reported per +0.10 HDI
 MIN_HDI_SD = CFG["estimation"]["min_hdi_sd"]            # below: HDI effectively constant
 MIN_REGION_USERS = CFG["estimation"]["min_region_users"]  # below: slope not credible
 
+# Vintage-ruler robustness outcome (pre-committed consequence of the MATERIAL
+# yardstick-vintage verdict — see analysis/yardstick_vintage.py).
+VINTAGE = CFG["vintage"]
+
 # Origin -> region (Stage-A pinned artifact; promoted from the assumption EDA).
 REGIONS = {}
 for _iso in "TWN CHN HKG KOR MAC MNG".split():                      REGIONS[_iso] = "East Asia"
@@ -98,14 +109,44 @@ for _iso in ("TUR ISR SAU ARE QAT KWT BHR OMN JOR LBN IRQ IRN YEM SYR EGY ZAF "
 
 
 def load_frame(gap_days: int = GAP_DAYS) -> pd.DataFrame:
-    """Analysis frame: one row per cohort user with first-trip + pooled outcomes."""
+    """Analysis frame: one row per cohort user with first-trip + pooled outcomes.
+
+    Also computes y_vin — the first-trip outcome re-scored with the vintage OSM
+    yardstick (identical score formula and fixed cell universe as
+    yardstick_vintage.py) — whenever the vintage POI parquet exists; NULL (and
+    the robustness row is skipped) otherwise."""
+    vin_pq = Path(VINTAGE["pois_parquet"])
+    has_vin = vin_pq.exists()
     con = duckdb.connect(WAREHOUSE, read_only=True)
+    if has_vin:
+        con.execute("INSTALL h3 FROM community; LOAD h3;")
+        vin_ctes = f"""
+        vin AS (
+            SELECT h3_latlng_to_cell(lat, lon, {VINTAGE['h3_res']}) AS h3_r6,
+                   COUNT(*) AS n
+            FROM read_parquet('{vin_pq.as_posix()}') GROUP BY 1
+        ),
+        rv AS (
+            SELECT cr.h3_r6, -ln(1 + COALESCE(vin.n, 0)) AS raw_vin
+            FROM cell_remoteness cr LEFT JOIN vin USING (h3_r6)
+        ),
+        vb AS (SELECT min(raw_vin) AS lo, max(raw_vin) AS hi FROM rv),
+        rvn AS (
+            SELECT h3_r6, CASE WHEN vb.hi = vb.lo THEN 0.0
+                               ELSE (raw_vin - vb.lo) / (vb.hi - vb.lo) END AS r_vin
+            FROM rv CROSS JOIN vb
+        )"""
+    else:
+        vin_ctes = """
+        rvn AS (SELECT h3_r6, NULL::DOUBLE AS r_vin FROM cell_remoteness)"""
     df = con.execute(f"""
-        WITH p AS (
-            SELECT ud.user_id_hash, ph.taken_ts, cr.remoteness_norm
+        WITH {vin_ctes},
+        p AS (
+            SELECT ud.user_id_hash, ph.taken_ts, cr.remoteness_norm, rvn.r_vin
             FROM photos ph
             JOIN user_destination ud USING (user_id_hash)
             JOIN cell_remoteness cr ON cr.h3_r6 = ph.h3_r6
+            LEFT JOIN rvn ON rvn.h3_r6 = ph.h3_r6
             WHERE ph.taken_ts IS NOT NULL
               AND EXTRACT(year FROM ph.taken_ts) BETWEEN 2012 AND 2019
         ),
@@ -125,16 +166,20 @@ def load_frame(gap_days: int = GAP_DAYS) -> pd.DataFrame:
                    MAX(trip_id) + 1 AS n_trips,
                    SUM(remoteness_norm * (trip_id = 0)::INT)
                        / NULLIF(SUM((trip_id = 0)::INT), 0) AS y_first_trip,
+                   SUM(r_vin * (trip_id = 0)::INT)
+                       / NULLIF(SUM((trip_id = 0)::INT), 0) AS y_vin,
                    SUM((trip_id = 0)::INT) AS trip1_photos
             FROM t GROUP BY 1
         )
         SELECT uf.user_id_hash, uf.origin_iso, uf.trip_year,
                uf.y_mean_remoteness AS y_pooled, uf.hdi, uf.agree_flag,
-               tr.y_first_trip, tr.n_trips, tr.trip1_photos
+               tr.y_first_trip, tr.y_vin, tr.n_trips, tr.trip1_photos
         FROM user_features uf
         LEFT JOIN trips tr USING (user_id_hash)
     """).df()
     con.close()
+    if not has_vin:
+        print(f"   [vintage ruler absent — {vin_pq} not found; y_vin row will be skipped]")
 
     df["region"] = df.origin_iso.map(REGIONS).fillna("Other")
     # DuckDB row order is nondeterministic; pin it so seeded fold splits
@@ -374,6 +419,12 @@ def main() -> int:
         run_within_region(df, "y_pooled",
                           "SENSITIVITY: pooled all-trips outcome",
                           in_scope)
+        if df.y_vin.notna().any():
+            run_within_region(
+                df, "y_vin",
+                f"ROBUSTNESS: first-trip outcome, {VINTAGE['label']} vintage "
+                "yardstick (completeness-limited ruler — yardstick_vintage.py)",
+                in_scope)
         run_pooled_ols(df, "y_first_trip", "first-trip outcome")
         run_pooled_dml(df, "y_first_trip", "first-trip outcome", nuisances="linear")
         run_pooled_dml(df, "y_first_trip", "first-trip outcome")

@@ -17,5 +17,10 @@ dml:
   cv: 4                   # cross-fitting partitions (user decision, 2026-09)
   nuisances: auto         # default nuisance spec; Optuna-tuned is a robustness row
 
+vintage:                  # vintage-ruler robustness outcome (y_vin) — pre-committed
+  pois_parquet: data/cache/pois_raw_japan_150101.parquet   # from extract_osm_pois.py on the archived PBF
+  h3_res: 6               # must match pipeline/config.yaml h3_res
+  label: "2015-01-01"
+
 tuning:
   trials: 100             # Optuna trials per nuisance (tune_dml.py)
