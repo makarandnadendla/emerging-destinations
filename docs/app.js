@@ -98,26 +98,12 @@
   })();
 
   // ---------- map base style ----------
-  // OSM standard raster (keyless); the old CARTO light endpoint now demands
-  // an API key. A light wash layer keeps the pale look of the design.
+  // OpenFreeMap Positron (vector, keyless, no usage limits — openfreemap.org).
+  // History: the prototype's CARTO endpoint now demands an API key, and
+  // tile.openstreetmap.org is OSMF's donated infrastructure whose usage
+  // policy disallows website-basemap embedding (served us 403s).
   function basemapStyle() {
-    return {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenStreetMap contributors',
-          maxzoom: 19
-        }
-      },
-      layers: [
-        { id: 'osm-base', type: 'raster', source: 'osm',
-          paint: { 'raster-saturation': -0.85, 'raster-opacity': 0.9,
-                   'raster-brightness-min': 0.15 } }
-      ]
-    };
+    return 'https://tiles.openfreemap.org/styles/positron';
   }
 
   // ---------- assign density given group + season (real photo counts) ----------
