@@ -760,6 +760,110 @@ select:hover, select:focus {
   .overlay-takeaway { font-size: 13px; }
 }
 
+/* ============ Slide subtitle (story framing) ============ */
+.slide-sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: 86ch;
+}
+
+/* ============ Hypothesis cards (Act I slide) ============ */
+.hypo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  align-content: start;
+  margin-top: 6px;
+}
+.hypo-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hypo-card p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  flex: 1;
+  text-wrap: pretty;
+}
+.hypo-sketch {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.hypo-pred {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-mute);
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+}
+
+/* ============ DAG slide (Act III) ============ */
+.dag-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 36px;
+  align-items: start;
+  flex: 1;
+  min-height: 0;
+}
+.dag-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 16px;
+}
+.dag-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--font-sans);
+}
+.dag-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+.dag-legend i {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.dag-footnote {
+  color: var(--ink-mute);
+  font-size: 0.86em;
+  margin-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .hypo-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dag-grid { grid-template-columns: 1fr; gap: 18px; }
+}
+@media (max-width: 600px) {
+  .hypo-card { padding: 12px; }
+  .hypo-card p { font-size: 13px; }
+  .hypo-pred { font-size: 10px; }
+  .slide-sub { font-size: 13px; }
+}
+
 /* ---- map city labels (docs real-data deck; HTML markers, no font deps) ---- */
 .map-city {
   font: 600 10px/1 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

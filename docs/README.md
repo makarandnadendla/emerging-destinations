@@ -1,8 +1,18 @@
 # docs/ — the real-data slide deck
 
-Five-slide horizontal deck presenting the study's real results: twin photo-density
-heatmaps of Japan (long-haul vs regional, season-filterable), the within-region
-HDI slopes (the H3 finding), region means, and the full methods/results summary.
+Seven-slide horizontal deck telling the study as a story in three acts:
+
+1. **Hero** — the question.
+2. **Act I · Hypotheses** — the four pre-registered rival theories (H1 acclimation,
+   H2 status-good, H3 heterogeneous, H4 null), called before unblinding.
+3. **Act II · Explore** — twin photo-density heatmaps of Japan (long-haul vs
+   regional, season-filterable)…
+4. …and mean off-path-ness by origin region — ending on the trap: those bars
+   are confounded, not causal.
+5. **Act III · Identify** — the causal map (simplified DAG): why region + year
+   are adjusted and mediators are left open.
+6. **Act III · Estimate** — the adjusted within-region HDI slopes: the H3 answer.
+7. **Appendix** — full methods & results.
 
 This is the real-data successor to the gitignored `prototype/` mock deck —
 same visual design, every number real.
