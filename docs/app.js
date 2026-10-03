@@ -51,11 +51,52 @@
   ];
 
   // ---------- real cell data ----------
-  // REAL.cells rows: [lat, lon, remoteness, LH W/Sp/Su/A, RG W/Sp/Su/A]
-  function cellCount(row, group, season) {
-    const base = group === 'Long-haul' ? 3 : 7;
-    if (season === 'all') return row[base] + row[base + 1] + row[base + 2] + row[base + 3];
-    return row[base + SEASONS.indexOf(season)];
+  // REAL.cells rows follow REAL.cell_columns: [lat, lon, remoteness, then
+  // W/Sp/Su/A counts per population prefix (LH, RG, and the gated origin
+  // regions EU/EA/SE/LA)]. Column positions resolved from the data itself.
+  const COL = {};
+  REAL.cell_columns.forEach((c, i) => { COL[c] = i; });
+
+  // populations the map picker offers; pooled = LH + RG = everyone
+  const POPS = [
+    { key: 'pooled', label: 'Pooled — all travelers', chip: 'Pooled',
+      prefixes: ['LH', 'RG'], color: '#1A1A1A' },
+    { key: 'LH', label: 'Long-haul', chip: 'Long-haul',
+      prefixes: ['LH'], color: GROUP_COLORS['Long-haul'] },
+    { key: 'RG', label: 'Regional', chip: 'Regional',
+      prefixes: ['RG'], color: GROUP_COLORS['Regional'] },
+    { key: 'EU', label: 'Europe', chip: 'Europe',
+      prefixes: ['EU'], color: REGION_COLORS[REGION_DOMAIN.indexOf('Europe')] },
+    { key: 'EA', label: 'East Asia', chip: 'E Asia',
+      prefixes: ['EA'], color: REGION_COLORS[REGION_DOMAIN.indexOf('East Asia')] },
+    { key: 'SE', label: 'Southeast Asia', chip: 'SE Asia',
+      prefixes: ['SE'], color: REGION_COLORS[REGION_DOMAIN.indexOf('Southeast Asia')] },
+    { key: 'LA', label: 'Latin America', chip: 'Lat Am',
+      prefixes: ['LA'], color: REGION_COLORS[REGION_DOMAIN.indexOf('Latin America')] }
+  ].filter(p => p.prefixes.every(x => COL[`${x}_Winter`] !== undefined));
+
+  // populations that OVERLAP (Europe ⊂ Long-haul, pooled ⊃ everything):
+  // ticking one auto-unticks these, so summed selections never double-count.
+  const OVERLAP = {
+    pooled: ['LH', 'RG', 'EU', 'EA', 'SE', 'LA'],
+    LH: ['pooled', 'EU', 'LA'],
+    RG: ['pooled', 'EA', 'SE'],
+    EU: ['pooled', 'LH'],
+    EA: ['pooled', 'RG'],
+    SE: ['pooled', 'RG'],
+    LA: ['pooled', 'LH']
+  };
+
+  function cellCount(row, prefixes, season) {
+    let n = 0;
+    for (const p of prefixes) {
+      if (season === 'all') {
+        for (const s of SEASONS) n += row[COL[`${p}_${s}`]];
+      } else {
+        n += row[COL[`${p}_${season}`]];
+      }
+    }
+    return n;
   }
 
   function cellFeatures() {
@@ -111,11 +152,11 @@
     };
   }
 
-  // ---------- assign density given group + season (real photo counts) ----------
-  function applyDensity(fc, group, season) {
+  // ---------- assign density given population prefixes + season ----------
+  function applyDensity(fc, prefixes, season) {
     const logVals = [];
     for (const f of fc.features) {
-      const n = cellCount(REAL.cells[f.properties.i], group, season);
+      const n = cellCount(REAL.cells[f.properties.i], prefixes, season);
       f.properties.n = n;
       if (n > 0) logVals.push(Math.log(n));
     }
@@ -133,12 +174,15 @@
   }
 
   // ---------- create one Japan map ----------
-  function createMap(group, divId, statId) {
+  // cfg: { mapId, statId, labelId, picksId, takeId, defaults } — each panel
+  // owns a checkbox selection of POPS; ticked populations are SUMMED into
+  // one heatmap. 'pooled' is exclusive (it already is everyone).
+  function createMap(cfg) {
     const bbox = JAPAN_BBOX;
     const center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
 
     const map = new maplibregl.Map({
-      container: divId,
+      container: cfg.mapId,
       style: basemapStyle(),
       center,
       zoom: 4.2,
@@ -150,7 +194,70 @@
 
     const points = cellFeatures();
     let currentSeason = 'all';
-    applyDensity(points, group, currentSeason);
+    const selection = new Set(cfg.defaults);
+
+    const selected = () => POPS.filter(p => selection.has(p.key));
+    const prefixes = () => [...new Set(selected().flatMap(p => p.prefixes))];
+    const labelOf = () => selected().map(p => p.label).join(' + ')
+      + (selection.has('pooled') ? '' : ' travelers');
+    const isDefault = () => selection.size === cfg.defaults.length
+      && cfg.defaults.every(k => selection.has(k));
+
+    function refreshOverlay() {
+      const lab = document.getElementById(cfg.labelId);
+      if (lab) {
+        lab.innerHTML = selected().map(p =>
+          `<span class="dot" style="background:${p.color}"></span>`).join('')
+          + labelOf();
+      }
+      const take = document.getElementById(cfg.takeId);
+      if (take) take.style.display = isDefault() ? '' : 'none';
+    }
+
+    function syncPicks() {
+      const wrap = document.getElementById(cfg.picksId);
+      if (!wrap) return;
+      [...wrap.querySelectorAll('.pick')].forEach((el, i) => {
+        const on = selection.has(POPS[i].key);
+        el.classList.toggle('on', on);
+        el.querySelector('input').checked = on;
+      });
+    }
+
+    function toggle(pop, cb) {
+      if (cb.checked) {
+        for (const k of (OVERLAP[pop.key] || [])) selection.delete(k);
+        selection.add(pop.key);
+      } else {
+        selection.delete(pop.key);
+        if (selection.size === 0) selection.add(pop.key);   // keep ≥ 1 ticked
+      }
+      syncPicks();
+      refresh();
+    }
+
+    (function buildPicks() {
+      const wrap = document.getElementById(cfg.picksId);
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      for (const p of POPS) {
+        const lab = document.createElement('label');
+        lab.className = 'pick' + (selection.has(p.key) ? ' on' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = selection.has(p.key);
+        cb.setAttribute('aria-label', `Include ${p.label} photos on this map`);
+        cb.addEventListener('change', () => toggle(p, cb));
+        const dot = document.createElement('i');
+        dot.className = 'pick-dot';
+        dot.style.background = p.color;
+        lab.append(cb, dot, document.createTextNode(p.chip));
+        wrap.appendChild(lab);
+      }
+    })();
+
+    applyDensity(points, prefixes(), currentSeason);
+    refreshOverlay();
 
     const refit = () => {
       map.resize();
@@ -243,7 +350,7 @@
         const p = f.properties;
         const seasonLabel = currentSeason === 'all' ? 'All seasons' : currentSeason;
         tooltip.show(
-          `<strong>${group} travelers</strong>`
+          `<strong>${labelOf()}</strong>`
           + `<div class="tt-row">Photos here: <strong>${Number(p.n).toLocaleString()}</strong> (${seasonLabel})</div>`
           + `<div class="tt-row">Cell remoteness: <strong>${Number(p.remoteness).toFixed(2)}</strong></div>`
           + `<div class="tt-row">${Number(p.lat).toFixed(2)}°N, ${Number(p.lon).toFixed(2)}°E</div>`,
@@ -255,15 +362,20 @@
         tooltip.hide();
       });
 
-      updateStats(points, statId);
+      updateStats(points, cfg.statId);
     });
+
+    function refresh() {
+      applyDensity(points, prefixes(), currentSeason);
+      const src = map.getSource('cell-points');
+      if (src) src.setData(points);
+      updateStats(points, cfg.statId);
+      refreshOverlay();
+    }
 
     function update(season) {
       currentSeason = season;
-      applyDensity(points, group, season);
-      const src = map.getSource('cell-points');
-      if (src) src.setData(points);
-      updateStats(points, statId);
+      refresh();
     }
 
     return { map, update, refit };
@@ -729,8 +841,16 @@
     document.getElementById('trip-count').textContent =
       `${s.n_cohort.toLocaleString()} travelers · ${s.n_photos.toLocaleString()} photos`;
 
-    const longhaul = createMap('Long-haul', 'map-longhaul', 'stat-longhaul');
-    const regional = createMap('Regional', 'map-regional', 'stat-regional');
+    const longhaul = createMap({
+      mapId: 'map-longhaul', statId: 'stat-longhaul',
+      labelId: 'label-longhaul', picksId: 'picks-longhaul',
+      takeId: 'take-longhaul', defaults: ['LH']
+    });
+    const regional = createMap({
+      mapId: 'map-regional', statId: 'stat-regional',
+      labelId: 'label-regional', picksId: 'picks-regional',
+      takeId: 'take-regional', defaults: ['RG']
+    });
     mapHandles = { longhaul, regional };
 
     renderScatter();

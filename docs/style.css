@@ -864,6 +864,50 @@ select:hover, select:focus {
   .slide-sub { font-size: 13px; }
 }
 
+/* ============ Map population picker (checkbox chips) ============ */
+.overlay-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink-mute);
+  background: var(--bg-elev);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.pick:hover { border-color: var(--ink); }
+.pick.on {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: #F3F1EA;
+}
+.pick input { display: none; }
+.pick-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .pick { font-size: 8.5px; padding: 3px 7px; gap: 4px; }
+  .overlay-picks { gap: 4px; margin-bottom: 8px; }
+}
+
 /* ============ Forest slide (pooled vs within-region) ============ */
 .forest-stack {
   flex-direction: column;

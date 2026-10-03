@@ -5,8 +5,11 @@ Eight-slide horizontal deck telling the study as a story in three acts:
 1. **Hero** — the question.
 2. **Act I · Hypotheses** — the four pre-registered rival theories (H1 acclimation,
    H2 status-good, H3 heterogeneous, H4 null), called before unblinding.
-3. **Act II · Explore** — twin photo-density heatmaps of Japan (long-haul vs
-   regional, season-filterable)…
+3. **Act II · Explore** — twin photo-density heatmaps of Japan,
+   season-filterable. Each map has checkbox chips to choose whose photos it
+   shows: Pooled (everyone), Long-haul, Regional, or any combination of the
+   four gated origin regions (Europe, East Asia, Southeast Asia, Latin
+   America); overlapping picks auto-untick so counts never double…
 4. …and mean off-path-ness by origin region — ending on the trap: those bars
    are confounded, not causal.
 5. **Act III · Identify** — the causal map (simplified DAG): why region + year
