@@ -21,8 +21,11 @@ WHAT IS CHECKED HERE (and where the untestable assumptions are delegated):
     IS the reported coefficient (asserted), so the smoother reads directly
     as "is a single linear HDI term adequate after the adjustment".
   * DML FIRST STAGE — out-of-fold R^2 of E[Y|W] and E[T|W] implied by each
-    fitted rung's own residuals (incl. what 'auto' actually selected), with
-    the rung's reported ATE alongside.
+    fitted rung's own residuals, with the rung's reported ATE alongside, AND
+    the nuisance estimator classes econml actually fitted per fold for every
+    rung (rung 2 is LinearRegression by construction; rung 3 shows what the
+    'auto' bake-off selected; rung 4 additionally reports the Optuna-tuned
+    family + hyperparameters from dml_nuisance_tuning.json).
   * FUNCTIONAL FORM — the linear final stage assumes a single slope in HDI.
     Checked on the pre-registered rung-3 estimator's own residualized scale:
     a quadratic-term test (the U-shape audit, numeric) and decile-binned
@@ -44,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import sys
 import warnings
 from pathlib import Path
@@ -235,7 +239,16 @@ def run(outcome: str = "y_first_trip") -> int:
             "r2_t": 1 - float((t_res ** 2).sum() / ((tv2 - tv2.mean()) ** 2).sum()),
             "y_res": y_res, "t_res": t_res, "d": d,
             "W_fit": np.asarray(W_fit, float),
-            "selected": _inner_model_names(ce.models_y) if spec == "auto" else ""})
+            "sel_y": _inner_model_names(ce.models_y),
+            "sel_t": _inner_model_names(ce.models_t)})
+
+    # rung-4 documentation: the Optuna-tuned nuisance config behind 'tuned'
+    tuned_note = ""
+    if any(r["spec"] == "tuned" for r in rungs):
+        best = json.loads(TUNING_JSON.read_text())
+        tuned_note = "  ·  ".join(
+            f"{k} = {best[k]['family']} {best[k]['params']}"
+            for k in ("model_y", "model_t"))
 
     # the pre-registered rung (3, 'auto') carries the graphical diagnostics
     r3 = next(r for r in rungs if r["spec"] == "auto")
@@ -283,8 +296,9 @@ def run(outcome: str = "y_first_trip") -> int:
     for r in rungs:
         print(f"    {r['name']:<32} {r['ate']:>+10.4f} "
               f"{r['r2_y']:>10.4f} {r['r2_t']:>10.4f}")
-        if r["selected"]:
-            print(f"    {'':<32} 'auto' selected: {r['selected']}")
+        print(f"    {'':<32} E[Y|W]: {r['sel_y']}  |  E[T|W]: {r['sel_t']}")
+    if tuned_note:
+        print(f"    rung-4 tuned config ({TUNING_JSON.name}): {tuned_note}")
     print(f"  Robinson slope from rung-3's OWN residuals: {slope:+.4f}/unit = "
           f"{slope * CONTRAST:+.4f} per +{CONTRAST:.2f} "
           f"({'matches' if slope_match else 'MISMATCH vs'} the rung-3 ATE {r3['ate']:+.4f})")
@@ -442,10 +456,19 @@ def run(outcome: str = "y_first_trip") -> int:
 
     # ---- html ---------------------------------------------------------------- #
     nrows = "".join(f"<tr><td>{r['name']}</td><td>{r['ate']:+.4f}</td>"
-                    f"<td>{r['r2_y']:.4f}</td><td>{r['r2_t']:.4f}</td></tr>"
+                    f"<td>{r['r2_y']:.4f}</td><td>{r['r2_t']:.4f}</td>"
+                    f"<td class=\"mdl\">{r['sel_y']}</td>"
+                    f"<td class=\"mdl\">{r['sel_t']}</td></tr>"
                     for r in rungs)
-    sel_note = (f"<p class=\"sub\">'auto' selected: {r3['selected']}</p>"
-                if r3["selected"] else "")
+    sel_note = (
+        "<p class=\"sub\"><b>Nuisance estimators, documented:</b> the two "
+        "right-hand columns are the model classes econml actually fitted per "
+        "cross-fit fold. Rung 2 pins LinearRegression for both nuisances "
+        "(pure Robinson partialling-out, zero model selection); rung 3 is "
+        "econml's 'auto' CV bake-off (pre-registered default) and the table "
+        "shows what it selected; rung 4 uses the Optuna-tuned config from "
+        f"<code>{TUNING_JSON.name}</code>"
+        + (f" &mdash; {tuned_note}" if tuned_note else "") + ".</p>")
     av_note = "; ".join(
         f"{a['region']} <b>{a['beta'] * CONTRAST:+.4f}</b> (p={a['p']:.3f})"
         for a in av_regions)
@@ -461,6 +484,7 @@ def run(outcome: str = "y_first_trip") -> int:
   .card{{background:{CARD};border:1px solid #1e2740;border-radius:14px;padding:16px;margin-top:16px;overflow:auto}}
   h2{{font-size:15px;margin:0 0 8px}} td,th{{padding:3px 12px;text-align:right;font-size:13px}}
   th{{color:{MUT}}} td:first-child,th:first-child{{text-align:left}}
+  td.mdl,th.mdl{{text-align:left;font-size:12px;color:{MUT};max-width:28ch}}
   code{{background:#1a2238;border:1px solid #26314e;border-radius:5px;padding:1px 6px;font-size:13px}}
   ul{{margin:6px 0 0;padding-left:20px}} li{{margin:4px 0;font-size:14px}}
   svg{{max-width:100%;height:auto}}
@@ -493,7 +517,7 @@ and LOO fragility are reported by <code>estimate.py</code>. No new pass/fail thr
       <li>identifying variation: sd(HDI) = {sd_t:.4f} &rarr; sd(HDI&thinsp;|&thinsp;W) = <b>{sd_tt:.4f}</b>
           ({sd_tt**2 / sd_t**2:.1%} of treatment variance survives the adjustment set)</li>
     </ul>
-    <table><tr><th>fitted rung</th><th>ATE per +{CONTRAST:.2f}</th><th>OOF R&sup2; E[Y|W]</th><th>OOF R&sup2; E[T|W]</th></tr>{nrows}</table>
+    <table><tr><th>fitted rung</th><th>ATE per +{CONTRAST:.2f}</th><th>OOF R&sup2; E[Y|W]</th><th>OOF R&sup2; E[T|W]</th><th class="mdl">E[Y|W] model (per fold)</th><th class="mdl">E[T|W] model (per fold)</th></tr>{nrows}</table>
     {sel_note}
   </div>
   <div class="card"><h2>rung 1 OLS — classic diagnostics</h2>
