@@ -11,8 +11,15 @@ own cross-fitted first-stage residuals (.residuals_).
 
 WHAT IS CHECKED HERE (and where the untestable assumptions are delegated):
 
-  * rung 1 pooled OLS — fit quality (R^2, adjusted R^2, residual sd),
-    residual-vs-fitted and QQ plots.
+  * rung 1 pooled OLS — fit quality (R^2, adjusted R^2, residual sd) and the
+    classic diagnostic quartet: residual-vs-fitted, QQ of standardized
+    residuals, scale-location, residual-vs-leverage with Cook's distance.
+  * LINEARITY AFTER ADJUSTMENT — added-variable (Frisch-Waugh-Lovell
+    partial-regression) plots with LOWESS overlays: pooled (region + year
+    partialled out of both axes) and one per gated Tier-1 region (year
+    partialled out, within region). By FWL the OLS slope through each cloud
+    IS the reported coefficient (asserted), so the smoother reads directly
+    as "is a single linear HDI term adequate after the adjustment".
   * DML FIRST STAGE — out-of-fold R^2 of E[Y|W] and E[T|W] implied by each
     fitted rung's own residuals (incl. what 'auto' actually selected), with
     the rung's reported ATE alongside.
@@ -46,17 +53,21 @@ warnings.filterwarnings("ignore")
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
+import statsmodels.api as sm
 from scipy import stats
+from statsmodels.nonparametric.smoothers_lowess import lowess
+from statsmodels.stats.outliers_influence import OLSInfluence
 
 try:
     from analysis.estimate import (CONTRAST, DML_CV, SEED, TUNING_JSON,
                                    _design, adjusted_coef, fit_pooled_dml,
-                                   load_frame)
+                                   identification_gate, load_frame)
 except ImportError:
     from estimate import (CONTRAST, DML_CV, SEED, TUNING_JSON,
                           _design, adjusted_coef, fit_pooled_dml,
-                          load_frame)
+                          identification_gate, load_frame)
 
 OUT = Path(__file__).resolve().parent / "outputs" / "model_diagnostics.html"
 
@@ -102,6 +113,17 @@ def _binned(x, y, bins=10):
         cx.append(float(x[m].mean())); my.append(float(y[m].mean()))
         se2.append(2 * float(y[m].std(ddof=1) / np.sqrt(m.sum())))
     return np.array(cx), np.array(my), np.array(se2)
+
+
+def _fwl(X, names, y, treatment="hdi"):
+    """Added-variable (Frisch-Waugh-Lovell) residualization: the treatment
+    column and y, each residualized on the remaining design columns. The OLS
+    slope of the returned pair equals the treatment's full-model coefficient."""
+    j = names.index(treatment)
+    W = np.delete(X, j, axis=1)
+    bt = np.linalg.lstsq(W, X[:, j], rcond=None)[0]
+    by = np.linalg.lstsq(W, y, rcond=None)[0]
+    return X[:, j] - W @ bt, y - W @ by
 
 
 def _hc1_quadratic_p(t_res, y_res):
@@ -160,15 +182,42 @@ def run(outcome: str = "y_first_trip") -> int:
         categorical=["region", "yr"], cluster_col="origin_iso", ci_level=0.95)
     X1, names1 = _design(dd, "hdi", [], ["region", "yr"])
     yv = dd["_y"].to_numpy(float)
-    bvec = np.linalg.pinv(X1.T @ X1) @ (X1.T @ yv)
+    res1 = sm.OLS(yv, X1).fit()
     # same design, same solver as adjusted_coef — must agree exactly
-    assert abs(float(bvec[names1.index("hdi")]) - beta1) < 1e-8
-    fitted = X1 @ bvec
-    resid = yv - fitted
-    n = len(dd)
-    r2 = 1 - float((resid ** 2).sum() / ((yv - yv.mean()) ** 2).sum())
-    adj_r2 = 1 - (1 - r2) * (n - 1) / (n - X1.shape[1])
-    resid_sd = float(resid.std(ddof=X1.shape[1]))
+    assert abs(float(res1.params[names1.index("hdi")]) - beta1) < 1e-8
+    fitted = np.asarray(res1.fittedvalues, float)
+    resid = np.asarray(res1.resid, float)
+    n, k1 = X1.shape
+    r2 = float(res1.rsquared)
+    adj_r2 = float(res1.rsquared_adj)
+    resid_sd = float(np.sqrt(res1.mse_resid))
+    infl = OLSInfluence(res1)
+    lev = np.asarray(infl.hat_matrix_diag, float)
+    rstd = np.asarray(infl.resid_studentized_internal, float)
+    cooks = np.asarray(infl.cooks_distance[0], float)
+    # a singleton category (e.g. the n=1 'Other' region) sits at leverage 1:
+    # its own dummy absorbs the row (residual 0), so its studentized residual
+    # and Cook's D are 0/0 — excluded from the stats/plots and counted.
+    fin = np.isfinite(rstd) & np.isfinite(cooks) & (lev < 1 - 1e-10)
+    n_lev1 = int((~fin).sum())
+    n_out3 = int((np.abs(rstd[fin]) > 3).sum())
+    max_lev, max_cook = float(lev[fin].max()), float(cooks[fin].max())
+
+    # ---- linearity after adjustment: added-variable (FWL) residuals ------- #
+    av_t, av_y = _fwl(X1, names1, yv)
+    assert abs(float((av_t * av_y).sum() / (av_t * av_t).sum()) - beta1) < 1e-8
+    in_scope = identification_gate(d1, verbose=False)
+    av_regions = []
+    for reg in in_scope:
+        sub = dd[dd.region == reg]
+        Xr, namesr = _design(sub, "hdi", [], ["yr"])
+        et, ey = _fwl(Xr, namesr, sub["_y"].to_numpy(float))
+        br, _, _, pr, dofr = adjusted_coef(sub, "_y", "hdi", [], ["yr"],
+                                           "origin_iso", 0.95)
+        # FWL again: the AV-cloud slope IS the Tier-1 headline beta
+        assert abs(float((et * ey).sum() / (et * et).sum()) - br) < 1e-8
+        av_regions.append({"region": reg, "et": et, "ey": ey,
+                           "beta": br, "p": pr, "dof": dofr})
 
     # ---- rungs 2-4: the ACTUAL fitted estimators (estimate.fit_pooled_dml) - #
     specs = ["linear", "auto"] + (["tuned"] if TUNING_JSON.exists() else [])
@@ -220,6 +269,14 @@ def run(outcome: str = "y_first_trip") -> int:
     print(f"  rung 1 OLS (adjusted_coef): beta per +{CONTRAST:.2f} = "
           f"{beta1 * CONTRAST:+.4f} (p={p1:.3f}, dof={dof1})  "
           f"R2={r2:.4f}  adj R2={adj_r2:.4f}  resid sd={resid_sd:.4f}")
+    print(f"  rung 1 influence: max leverage={max_lev:.3f} (k/n={k1 / n:.3f}), "
+          f"max Cook's D={max_cook:.3f}, |std resid|>3: {n_out3} of {n:,}"
+          + (f"  [{n_lev1} singleton row(s) at leverage 1 excluded]"
+             if n_lev1 else ""))
+    print(f"  added-variable slopes (= reported betas by FWL, asserted), "
+          f"per +{CONTRAST:.2f}: pooled {beta1 * CONTRAST:+.4f}; " + "; ".join(
+          f"{a['region']} {a['beta'] * CONTRAST:+.4f} (p={a['p']:.3f})"
+          for a in av_regions))
     print(f"  rungs 2-4 (fitted LinearDML internals, {DML_CV}-fold cross-fit, seed {SEED}):")
     print(f"    {'rung':<32} {'ATE/+' + format(CONTRAST, '.2f'):>10} "
           f"{'R2 E[Y|W]':>10} {'R2 E[T|W]':>10}")
@@ -246,22 +303,100 @@ def run(outcome: str = "y_first_trip") -> int:
     plt.rcParams.update({"text.color": FG, "font.size": 10})
     figs = {}
 
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 3.8), facecolor=BG)
-    ax = axes[0]; _style(ax)
+    # -- classic quartet: resid-fitted / QQ / scale-location / leverage ----- #
+    fig, axes = plt.subplots(2, 2, figsize=(10.5, 7.6), facecolor=BG)
+    ax = axes[0, 0]; _style(ax)
     ax.scatter(fitted, resid, s=6, alpha=0.25, color="#3b82f6", linewidths=0)
     bx, bm, bs = _binned(fitted, resid)
     ax.errorbar(bx, bm, yerr=bs, fmt="o-", color="#f59e0b", ms=4, lw=1.2,
                 label="decile means ± 2SE")
     ax.axhline(0, color="#ef4444", lw=1)
     ax.set_xlabel("fitted"); ax.set_ylabel("residual")
-    ax.set_title("rung 1 OLS — residual vs fitted"); _legend(ax, fontsize=9)
-    ax = axes[1]; _style(ax)
-    (osm, osr), (sl, ic, _) = stats.probplot(resid, dist="norm")
+    ax.set_title("residual vs fitted"); _legend(ax, fontsize=8.5)
+    ax = axes[0, 1]; _style(ax)
+    (osm, osr), (sl, ic, _) = stats.probplot(rstd[fin], dist="norm")
     ax.scatter(osm, osr, s=6, alpha=0.3, color="#3b82f6", linewidths=0)
     ax.plot(osm, sl * osm + ic, color="#ef4444", lw=1)
-    ax.set_xlabel("normal quantiles"); ax.set_ylabel("residual quantiles")
-    ax.set_title("rung 1 OLS — residual QQ")
+    ax.set_xlabel("normal quantiles"); ax.set_ylabel("standardized residual")
+    ax.set_title("normal QQ (standardized residuals)")
+    ax = axes[1, 0]; _style(ax)
+    sq = np.sqrt(np.abs(rstd[fin]))
+    ax.scatter(fitted[fin], sq, s=6, alpha=0.25, color="#3b82f6", linewidths=0)
+    bx, bm, bs = _binned(fitted[fin], sq)
+    ax.errorbar(bx, bm, yerr=bs, fmt="o-", color="#f59e0b", ms=4, lw=1.2,
+                label="decile means ± 2SE")
+    ax.set_xlabel("fitted"); ax.set_ylabel("√|standardized residual|")
+    ax.set_title("scale-location (spread vs level)"); _legend(ax, fontsize=8.5)
+    ax = axes[1, 1]; _style(ax)
+    ax.scatter(lev[fin], rstd[fin], s=6, alpha=0.25, color="#3b82f6",
+               linewidths=0)
+    hs = np.linspace(max(float(lev[fin].min()), 1e-4), max_lev * 1.05, 150)
+    for D, ls in ((0.5, "--"), (1.0, ":")):
+        bound = np.sqrt(D * k1 * (1 - hs) / hs)
+        ax.plot(hs, bound, color="#ef4444", lw=0.9, ls=ls,
+                label=f"Cook's D = {D:g}")
+        ax.plot(hs, -bound, color="#ef4444", lw=0.9, ls=ls)
+    ax.axhline(0, color="#26314e", lw=0.8)
+    pad = 0.4
+    ax.set_ylim(float(rstd[fin].min()) - pad, float(rstd[fin].max()) + pad)
+    ax.set_xlabel(f"leverage (max {max_lev:.3f}; k/n = {k1 / n:.3f})")
+    ax.set_ylabel("standardized residual")
+    ax.set_title(f"residuals vs leverage (max Cook's D {max_cook:.3f})")
+    _legend(ax, fontsize=8.5)
+    fig.tight_layout()
     figs["ols"] = _svg(fig)
+
+    # -- added-variable plots: linearity after adjustment ------------------- #
+    fig, ax = plt.subplots(figsize=(10.5, 4.8), facecolor=BG); _style(ax)
+    reg1 = d1.region.to_numpy()
+    cmap = plt.get_cmap("tab10")
+    for i, r in enumerate(sorted(set(reg1), key=lambda r: -(reg1 == r).sum())):
+        m = reg1 == r
+        ax.scatter(av_t[m], av_y[m], s=7, alpha=0.35, linewidths=0,
+                   color=cmap(i % 10), label=f"{r} (n={m.sum()})")
+    bx, bm, bs = _binned(av_t, av_y)
+    ax.errorbar(bx, bm, yerr=bs, fmt="o", color="#ffffff", ms=5, lw=1.4,
+                zorder=5, label="decile means ± 2SE")
+    xs = np.linspace(float(av_t.min()), float(av_t.max()), 50)
+    ax.plot(xs, beta1 * xs, color="#ef4444", lw=1.6, zorder=6,
+            label=f"OLS slope = rung-1 β {beta1 * CONTRAST:+.4f} per +{CONTRAST:.2f}")
+    lo = lowess(av_y, av_t, frac=0.3, return_sorted=True)
+    ax.plot(lo[:, 0], lo[:, 1], color="#f59e0b", lw=1.4, ls="--", zorder=6,
+            label="LOWESS (frac 0.3)")
+    ax.set_xlabel("HDI residual  (HDI − E[HDI | region, year], OLS partialling)")
+    ax.set_ylabel("outcome residual")
+    ax.set_title("added-variable plot — pooled rung 1 (region + year partialled out)")
+    _legend(ax, fontsize=8.5, ncol=2)
+    figs["av_pooled"] = _svg(fig)
+
+    nrow = (len(av_regions) + 1) // 2
+    fig, axes = plt.subplots(nrow, 2, figsize=(10.5, 3.7 * nrow), facecolor=BG,
+                             squeeze=False)
+    flat_axes = np.ravel(axes)
+    for ax, a in zip(flat_axes, av_regions):
+        _style(ax)
+        ax.scatter(a["et"], a["ey"], s=7, alpha=0.3, color="#3b82f6",
+                   linewidths=0)
+        xs = np.linspace(float(a["et"].min()), float(a["et"].max()), 50)
+        ax.plot(xs, a["beta"] * xs, color="#ef4444", lw=1.5)
+        lo = lowess(a["ey"], a["et"], frac=0.6, return_sorted=True)
+        ax.plot(lo[:, 0], lo[:, 1], color="#f59e0b", lw=1.3, ls="--")
+        bx, bm, bs = _binned(a["et"], a["ey"], bins=8)
+        ax.errorbar(bx, bm, yerr=bs, fmt="o", color="#ffffff", ms=4, lw=1.1)
+        ax.set_xlabel("HDI residual (year partialled out)", fontsize=8.5)
+        ax.set_ylabel("outcome residual", fontsize=8.5)
+        ax.set_title(f"{a['region']} — β {a['beta'] * CONTRAST:+.4f} per "
+                     f"+{CONTRAST:.2f} (p={a['p']:.3f}, dof={a['dof']})",
+                     fontsize=9.5)
+    for ax in flat_axes[len(av_regions):]:
+        ax.set_visible(False)
+    _legend(flat_axes[0], handles=[
+        Line2D([], [], color="#ef4444", lw=1.5, label="Tier-1 headline slope"),
+        Line2D([], [], color="#f59e0b", lw=1.3, ls="--", label="LOWESS (frac 0.6)"),
+        Line2D([], [], color="#ffffff", marker="o", lw=0, ms=4,
+               label="octile means ± 2SE")], fontsize=8)
+    fig.tight_layout()
+    figs["av_regions"] = _svg(fig)
 
     fig, ax = plt.subplots(figsize=(10.5, 5), facecolor=BG); _style(ax)
     if order_ok:
@@ -311,6 +446,9 @@ def run(outcome: str = "y_first_trip") -> int:
                     for r in rungs)
     sel_note = (f"<p class=\"sub\">'auto' selected: {r3['selected']}</p>"
                 if r3["selected"] else "")
+    av_note = "; ".join(
+        f"{a['region']} <b>{a['beta'] * CONTRAST:+.4f}</b> (p={a['p']:.3f})"
+        for a in av_regions)
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
@@ -343,6 +481,11 @@ and LOO fragility are reported by <code>estimate.py</code>. No new pass/fail thr
     <ul>
       <li>rung 1 OLS (adjusted_coef): &beta; per +{CONTRAST:.2f} = <b>{beta1 * CONTRAST:+.4f}</b>
           (p={p1:.3f}, dof={dof1}); R&sup2; = <b>{r2:.4f}</b>, adj R&sup2; = {adj_r2:.4f}, residual sd = {resid_sd:.4f}</li>
+      <li>rung 1 influence: max leverage {max_lev:.3f} (k/n = {k1 / n:.3f}),
+          max Cook's D <b>{max_cook:.3f}</b>, |standardized residual| &gt; 3: {n_out3} of {n:,}{
+          f" &mdash; {n_lev1} singleton row(s) at leverage 1 (absorbed by their own dummy) excluded" if n_lev1 else ""}</li>
+      <li>added-variable slopes (equal the reported betas by FWL, asserted), per +{CONTRAST:.2f}:
+          pooled <b>{beta1 * CONTRAST:+.4f}</b>; {av_note}</li>
       <li>Robinson slope from rung 3's own residuals = <b>{slope * CONTRAST:+.4f}</b> per +{CONTRAST:.2f}
           ({'matches' if slope_match else 'MISMATCH vs'} the rung-3 reported ATE {r3['ate']:+.4f})</li>
       <li>functional form (rung-3 residual scale): quadratic coefficient {quad_coef:+.3f},
@@ -353,7 +496,25 @@ and LOO fragility are reported by <code>estimate.py</code>. No new pass/fail thr
     <table><tr><th>fitted rung</th><th>ATE per +{CONTRAST:.2f}</th><th>OOF R&sup2; E[Y|W]</th><th>OOF R&sup2; E[T|W]</th></tr>{nrows}</table>
     {sel_note}
   </div>
-  <div class="card"><h2>rung 1 OLS residuals</h2><div class="zoom">{figs['ols']}</div></div>
+  <div class="card"><h2>rung 1 OLS — classic diagnostics</h2>
+    <p class="sub">The standard quartet: residual-vs-fitted (misspecification),
+    QQ of standardized residuals (normality — inference uses cluster-robust t,
+    so this is descriptive), scale-location (heteroskedasticity — same caveat:
+    the reported SEs are already CR1), and residuals-vs-leverage with Cook's
+    distance contours (influential points).</p>
+    <div class="zoom">{figs['ols']}</div></div>
+  <div class="card"><h2>Linearity after adjustment — added-variable plots</h2>
+    <p class="sub">Frisch&ndash;Waugh&ndash;Lovell: both axes are residuals after
+    partialling every <i>other</i> design column out of the outcome and out of HDI,
+    so the red line's slope IS the reported coefficient (asserted in code). If a
+    single linear HDI term is adequate <i>after</i> the adjustment, the LOWESS
+    (dashed amber) and the binned means hug the red line; curvature or kinks in
+    the smoother are what a linear term would be missing. Top: pooled rung 1
+    (region + year partialled out). Below: the gated Tier-1 headline fits
+    (year partialled out, within each region) — the pre-registered estimator
+    behind the deck's slopes.</p>
+    <div class="zoom">{figs['av_pooled']}</div>
+    <div class="zoom">{figs['av_regions']}</div></div>
   <div class="card"><h2>DML final stage (Robinson) — rung 3's own residuals</h2>
     <p class="sub">Each point is a user after partialling out region + year from both axes,
     using the fitted rung-3 estimator's cross-fitted first-stage residuals. The red line's
