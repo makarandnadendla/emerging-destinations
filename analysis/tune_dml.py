@@ -3,9 +3,11 @@ Optuna tuning for the Stage-A LinearDML nuisance models — PREDICTIVE ONLY.
 
 WHAT IS TUNED: the two first-stage nuisances of the pooled LinearDML secondary
 (estimate.run_pooled_dml) — model_y for E[Y|W] and model_t for E[T|W], where
-W = region + trip-year dummies. Selection minimizes out-of-fold MSE on the
-nuisance's own prediction task, with the fold count taken from refute.DML_CV
-so it mirrors LinearDML's cross-fitting partitions.
+W = region + trip-year dummies built by assumptions_dag.design_matrix (the
+SAME encoding DoWhy hands the estimator, so the tuner cannot drift from it).
+Selection minimizes out-of-fold MSE on the nuisance's own prediction task,
+with the fold count taken from estimate.DML_CV so it mirrors LinearDML's
+cross-fitting partitions.
 
 WHAT IS NEVER TUNED ON: the causal estimate. Selecting nuisances by theta, its
 CI, or p-value is post-selection bias; predictive tuning is the sanctioned
@@ -21,7 +23,7 @@ alpha is tuned). This is a credibility upgrade, not a power upgrade.
 
 Output: analysis/outputs/dml_nuisance_tuning.json — best family + params + CV
 scores per nuisance, alongside the 'auto'-candidate baselines. Consumed by
-refute.dml_nuisance_models("tuned") via the shared chokepoint; estimate.py
+estimate.dml_nuisance_models("tuned") via the shared chokepoint; estimate.py
 --run picks the tuned rung up automatically whenever this JSON exists.
 
 Usage:
@@ -39,19 +41,18 @@ warnings.filterwarnings("ignore")
 
 import numpy as np
 import optuna
-import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import LassoCV, Ridge
 from sklearn.model_selection import KFold, cross_val_score
 
 try:
+    from analysis.assumptions_dag import design_matrix
     from analysis.config import CFG
-    from analysis.estimate import load_frame
-    from analysis.refute import DML_CV, TUNING_JSON as OUT_PATH
+    from analysis.estimate import DML_CV, TUNING_JSON as OUT_PATH, load_frame
 except ImportError:
+    from assumptions_dag import design_matrix
     from config import CFG
-    from estimate import load_frame
-    from refute import DML_CV, TUNING_JSON as OUT_PATH
+    from estimate import DML_CV, TUNING_JSON as OUT_PATH, load_frame
 
 SEED = CFG["seed"]
 
@@ -125,17 +126,15 @@ def main() -> int:
     args = p.parse_args()
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    df = load_frame()
-    d = df.dropna(subset=["y_first_trip"])
-    # W constructed EXACTLY as in estimate.run_pooled_dml
-    W = pd.get_dummies(d[["region"]].assign(yr=d.trip_year.astype(int).astype(str)),
-                       drop_first=True, dtype=float).to_numpy()
+    # (W, y, t) from the shared chokepoint — the same encoding DoWhy hands
+    # the estimator (assumptions_dag.design_matrix).
+    W, y, t, d = design_matrix(load_frame(), "y_first_trip")
     print(f"-> tuning on n={len(d):,}, W has {W.shape[1]} dummy columns; "
           f"{args.trials} trials per nuisance, {DML_CV}-fold CV, seed {SEED}")
 
     result = {
-        "model_y": tune_target(W, d.y_first_trip.to_numpy(float), "model_y", args.trials),
-        "model_t": tune_target(W, d.hdi.to_numpy(float), "model_t", args.trials),
+        "model_y": tune_target(W, y, "model_y", args.trials),
+        "model_t": tune_target(W, t, "model_t", args.trials),
         "meta": {"n": len(d), "w_cols": int(W.shape[1]), "seed": SEED,
                  "outcome": "y_first_trip", "treatment": "hdi",
                  "cv_folds": DML_CV,

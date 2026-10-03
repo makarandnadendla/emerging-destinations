@@ -25,11 +25,15 @@ Estimators:
               (one-step adjustment; no orthogonalization or cross-fitting);
       rung 2: LinearDML with plain LINEAR nuisances (Robinson partialling-out,
               cross-fit at DML_CV; zero model selection);
-      rung 3: LinearDML with 'auto' nuisances (pre-registered secondary;
-              refute.dml_nuisance_models — shared with the DoWhy battery via
-              refute.estimate_dml);
+      rung 3: LinearDML with 'auto' nuisances (pre-registered secondary);
       rung 4: Optuna-selected nuisances (robustness) — runs automatically
               whenever tune_dml.py's tuning JSON exists, else skipped with a note.
+    Rungs 2-4 are estimated THROUGH DOWHY (method name
+    'backdoor.econml.dml.LinearDML' via estimate_dml, nuisances from
+    dml_nuisance_models — both defined here and imported by the refute.py
+    battery), so the pooled secondary is the very CausalModel/estimate object
+    the battery attacks, with the backdoor adjustment set identified from the
+    graph that assumptions_dag.py owns.
     Adjacent-rung differences isolate what cross-fitting and flexible
     nuisances each contribute. Continuous HDI; region dummies in W. Pooled ATE
     is dominated by regions with real HDI variation (DML self-localizes: the
@@ -68,13 +72,11 @@ import numpy as np
 import pandas as pd
 
 try:
+    from analysis.assumptions_dag import build_model, describe_estimand, identify
     from analysis.config import CFG
-    from analysis.refute import DML_CV, TUNING_JSON, dml_nuisance_models
-    from analysis.sensitivity import _adjusted_coef as adjusted_coef
 except ImportError:
+    from assumptions_dag import build_model, describe_estimand, identify
     from config import CFG
-    from refute import DML_CV, TUNING_JSON, dml_nuisance_models
-    from sensitivity import _adjusted_coef as adjusted_coef
 
 # Defaults live in analysis/config.yaml (single source of truth).
 WAREHOUSE = CFG["warehouse"]
@@ -89,6 +91,141 @@ MIN_REGION_USERS = CFG["estimation"]["min_region_users"]  # below: slope not cre
 # Vintage-ruler robustness outcome (pre-committed consequence of the MATERIAL
 # yardstick-vintage verdict — see analysis/yardstick_vintage.py).
 VINTAGE = CFG["vintage"]
+
+
+# --------------------------------------------------------------------------- #
+# Shared estimation machinery. Estimators live HERE; assumptions live in
+# assumptions_dag.py; attacks live in refute.py (which imports from here —
+# one-way: assumptions_dag <- estimate <- refute).
+# --------------------------------------------------------------------------- #
+# Cross-fitting partitions for the DML (analysis/config.yaml): shared by the
+# ladder rungs, the refutation battery and the nuisance tuner's CV, so the
+# fold scheme cannot diverge.
+DML_CV = CFG["dml"]["cv"]
+
+# Optuna-tuned nuisance spec (written by tune_dml.py, read by the 'tuned' rung).
+TUNING_JSON = Path(__file__).resolve().parent / "outputs" / "dml_nuisance_tuning.json"
+
+
+def dml_nuisance_models(spec: str = "auto") -> dict:
+    """Stage-A DML nuisance models (user decision, 2026-07): both nuisances
+    default to econml's 'auto' model selection.
+
+    The treatment stays CONTINUOUS (raw HDI, not binned). With a continuous
+    treatment the discrete-treatment DR learners (and any propensity classifier)
+    don't apply; the estimator is LinearDML, where model_t is the treatment
+    model — the continuous analogue of the propensity — and model_y is the
+    outcome model. NOTE: the linear final stage estimates a single slope in
+    HDI; the U-shape found in the assumption-audit EDA is handled by a
+    binned/spline sensitivity spec, not by the headline.
+
+    spec picks the rung on the estimator-complexity ladder:
+      'auto'   — pre-registered default (econml's CV bake-off; analysis/config.yaml)
+      'linear' — plain OLS nuisances: the original Robinson partialling-out
+                 estimator, still cross-fit. Zero model selection.
+      'tuned'  — Optuna-selected nuisances (predictive CV only) from
+                 analysis/outputs/dml_nuisance_tuning.json (tune_dml.py);
+                 reported as a robustness row, never the default."""
+    if spec == "auto":
+        default = CFG["dml"]["nuisances"]
+        return {"model_y": default, "model_t": default}
+    if spec == "linear":
+        from sklearn.linear_model import LinearRegression
+        return {"model_y": LinearRegression(), "model_t": LinearRegression()}
+    if spec == "tuned":
+        import json
+        if not TUNING_JSON.exists():
+            raise FileNotFoundError(
+                f"{TUNING_JSON} not found — run `uv run python analysis/tune_dml.py` first.")
+        try:
+            from analysis.tune_dml import build_model as build_sklearn
+        except ImportError:
+            from tune_dml import build_model as build_sklearn
+        best = json.loads(TUNING_JSON.read_text())
+        return {k: build_sklearn(best[k]["family"], best[k]["params"])
+                for k in ("model_y", "model_t")}
+    raise ValueError(f"unknown nuisance spec {spec!r}")
+
+
+def estimate_dml(model, identified_estimand,
+                 control_value=0, treatment_value=1,
+                 confidence_intervals: bool = False,
+                 fit_params: dict | None = None, **init_overrides):
+    """Debiased-ML estimate via econml's LinearDML (DoWhy-wrapped so the
+    refutation battery can re-run it): 'auto' nuisances + linear final stage
+    with statsmodels inference. Continuous treatment.
+
+    The defaults (contrast 0 -> 1, no CIs, no fit_params) match DoWhy's own
+    and keep the battery path unchanged; run_pooled_dml passes the +CONTRAST
+    treatment_value and confidence_intervals=True for its reporting, and
+    diagnostics.py passes fit_params={"cache_values": True} so the fitted
+    estimator exposes its cross-fitted first-stage residuals."""
+    init = {**dml_nuisance_models(), "cv": DML_CV, "random_state": SEED}
+    init.update(init_overrides)
+    return model.estimate_effect(
+        identified_estimand,
+        method_name="backdoor.econml.dml.LinearDML",
+        control_value=control_value, treatment_value=treatment_value,
+        confidence_intervals=confidence_intervals,
+        method_params={"init_params": init, "fit_params": fit_params or {}},
+    )
+
+
+def _design(d: pd.DataFrame, treatment: str, numeric: list[str],
+            categorical: list[str]):
+    """Build [intercept, treatment, numerics, one-hot(categoricals)] design matrix."""
+    parts = [np.ones((len(d), 1)), d[[treatment]].to_numpy(float)]
+    names = ["const", treatment]
+    for c in numeric:
+        parts.append(d[[c]].to_numpy(float)); names.append(c)
+    for c in categorical:
+        dummies = pd.get_dummies(d[c].astype("category"), prefix=c, drop_first=True)
+        if dummies.shape[1]:
+            parts.append(dummies.to_numpy(float)); names.extend(dummies.columns.tolist())
+    return np.hstack(parts), names
+
+
+def adjusted_coef(d: pd.DataFrame, outcome: str, treatment: str,
+                  numeric: list[str], categorical: list[str],
+                  cluster_col, ci_level: float):
+    """Return (beta, se, (ci_lo, ci_hi), p, dof) for `treatment`, with cluster-
+    robust SEs when cluster_col is given (CR1), else HC1. The Tier-1 headline,
+    rung 1 and the design refutations all run on this one estimator."""
+    from scipy import stats
+
+    X, names = _design(d, treatment, numeric, categorical)
+    y = d[outcome].to_numpy(float)
+    j = names.index(treatment)
+    n, kf = X.shape
+
+    XtX_inv = np.linalg.pinv(X.T @ X)
+    beta_vec = XtX_inv @ (X.T @ y)
+    resid = y - X @ beta_vec
+    beta = float(beta_vec[j])
+
+    if cluster_col is not None:
+        groups = d[cluster_col].to_numpy()
+        uniq = np.unique(groups)
+        G = len(uniq)
+        meat = np.zeros((kf, kf))
+        for g in uniq:
+            m = groups == g
+            sg = X[m].T @ resid[m]
+            meat += np.outer(sg, sg)
+        adj = (G / (G - 1.0)) * ((n - 1.0) / (n - kf)) if G > 1 else 1.0
+        V = adj * (XtX_inv @ meat @ XtX_inv)
+        dof = max(G - 1, 1)
+    else:
+        meat = (X * (resid ** 2)[:, None]).T @ X
+        V = (n / (n - kf)) * (XtX_inv @ meat @ XtX_inv)
+        dof = max(n - kf, 1)
+
+    se = float(np.sqrt(max(V[j, j], 0.0)))
+    tcrit = float(stats.t.ppf(0.5 + ci_level / 2.0, dof))
+    ci = (beta - tcrit * se, beta + tcrit * se)
+    tstat = beta / se if se > 0 else 0.0
+    pval = float(2 * stats.t.sf(abs(tstat), dof))
+    return beta, se, ci, pval, dof
 
 # Origin -> region (Stage-A pinned artifact; promoted from the assumption EDA).
 REGIONS = {}
@@ -300,21 +437,39 @@ def run_pooled_ols(df: pd.DataFrame, outcome: str, label: str) -> float:
     return beta * CONTRAST
 
 
+def fit_pooled_dml(df: pd.DataFrame, outcome: str, nuisances: str = "auto",
+                   cache_values: bool = False):
+    """Fit one pooled-ladder DML rung and return (DoWhy estimate, frame used).
+
+    THE single construction path for rungs 2-4: run_pooled_dml reports from it
+    and diagnostics.py inspects the same fitted object (cache_values=True
+    makes econml keep the cross-fitted first-stage residuals on the
+    estimator, exposed as .residuals_)."""
+    d = df.dropna(subset=[outcome])
+    model = build_model(d, outcome)       # assumptions_dag pins the adjustment set
+    ident = identify(model)
+    est = estimate_dml(model, ident, control_value=0.0, treatment_value=CONTRAST,
+                       confidence_intervals=True,
+                       fit_params={"cache_values": True} if cache_values else None,
+                       **dml_nuisance_models(nuisances))
+    return est, d
+
+
 def run_pooled_dml(df: pd.DataFrame, outcome: str, label: str,
                    nuisances: str = "auto") -> float:
-    from econml.dml import LinearDML
-    d = df.dropna(subset=[outcome])
-    Y = d[outcome].to_numpy(float)
-    T = d.hdi.to_numpy(float)
-    W = pd.get_dummies(d[["region"]].assign(yr=d.trip_year.astype(int).astype(str)),
-                       drop_first=True, dtype=float)
-    est = LinearDML(**dml_nuisance_models(nuisances), cv=DML_CV, random_state=SEED)
-    est.fit(Y, T, X=None, W=W)
-    lo, hi = est.ate_interval(T0=0.0, T1=CONTRAST, alpha=0.05)
+    """Rungs 2-4 run through DoWhy's interface (method name
+    'backdoor.econml.dml.LinearDML', via estimate_dml above): the identical
+    CausalModel -> identify_effect -> estimate chain the refutation battery
+    re-fits, so the printed secondary IS the refuted object and the backdoor
+    adjustment set is identified from the graph (assumptions_dag.build_model)
+    rather than assumed per call site."""
+    est, d = fit_pooled_dml(df, outcome, nuisances)
+    ate = float(est.value)
+    ci = np.asarray(est.get_confidence_intervals(), dtype=float).reshape(2, -1)
+    lo, hi = float(ci[0].mean()), float(ci[1].mean())
     rung = {"linear": "rung 2 (LinearDML, linear nuisances — Robinson)",
             "auto": "rung 3 (LinearDML, 'auto' nuisances — pre-registered)",
             "tuned": "rung 4 (LinearDML, Optuna-tuned nuisances — robustness)"}[nuisances]
-    ate = float(est.ate(T0=0.0, T1=CONTRAST))
     print(f"\n--- SECONDARY {rung}: {label} ---")
     print(f"  ATE per +{CONTRAST:.2f} HDI: {ate:+.4f} "
           f"[95% CI {lo:+.4f}, {hi:+.4f}]  (n={len(d):,}; dominated by regions "
@@ -361,10 +516,6 @@ def selftest() -> int:
 
     # (c) pooled DML + DoWhy-wrapped path on continuous treatment
     from dowhy import CausalModel
-    try:
-        from analysis.refute import estimate_dml
-    except ImportError:
-        from refute import estimate_dml
     # DGP note: treatment needs ample residual variance (sd 0.15 here) or the
     # 'auto' nuisance fit's small overfitting of E[T|W] attenuates the slope.
     w = rng.normal(0, 1, (3000, 2))
@@ -425,6 +576,13 @@ def main() -> int:
                 f"ROBUSTNESS: first-trip outcome, {VINTAGE['label']} vintage "
                 "yardstick (completeness-limited ruler — yardstick_vintage.py)",
                 in_scope)
+        # One identification statement for the pooled tier (identical across
+        # rungs 2-4 — the ladder varies only the nuisance models).
+        d1 = df.dropna(subset=["y_first_trip"])
+        print("\nIDENTIFICATION (pooled tier — DoWhy backdoor, "
+              "adjustment set from assumptions_dag.py):")
+        print("  " + describe_estimand(identify(build_model(d1, "y_first_trip")))
+              .replace("\n", "\n  "))
         run_pooled_ols(df, "y_first_trip", "first-trip outcome")
         run_pooled_dml(df, "y_first_trip", "first-trip outcome", nuisances="linear")
         run_pooled_dml(df, "y_first_trip", "first-trip outcome")

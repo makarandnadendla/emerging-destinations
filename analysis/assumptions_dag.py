@@ -1,18 +1,115 @@
 """
-Generate analysis/dag.html with the causal DAG baked in as STATIC inline SVG.
+Single source of truth for the identification assumptions.
 
-No JS, no CDN, no build step — the graph is drawn into the HTML so it renders
-when the file is opened directly (file://) or served. Layout is hand-placed;
-long edges use orthogonal routing so no edge passes through an unrelated node box.
+Everything that ENCODES an assumption lives here, so the DAG reviewers see and
+the model the estimators fit cannot drift apart:
 
-Run:  python analysis/generate_dag.py
+  * TREATMENT / ADJUSTMENT_SET / DAG_NODES / DAG_EDGES — the assumption
+    constants. The adjustment set {region, yr} is the frame-column spelling of
+    the DAG's REGION + YEAR confounders (see COLUMN_TO_NODE).
+  * make_causal_model / build_model — DoWhy CausalModel constructors.
+    build_model pins treatment and common causes from the constants above, so
+    call sites (estimate.py ladder, refute.py battery driver) cannot specify a
+    different adjustment set by accident.
+  * identify / describe_estimand — identification + a compact, report-ready
+    rendering of the backdoor estimand (printed with --run, embedded in the
+    refutation reports).
+  * design_matrix — the (W, y, t) encoding of the adjustment set, built the
+    same way DoWhy encodes common causes (one-hot, drop_first), shared by
+    tune_dml.py and diagnostics.py so no second W construction exists.
+  * --render — writes analysis/dag.html, the static-SVG DAG, from the SAME
+    node/edge constants (absorbed from the former generate_dag.py).
+
+Usage:
+    uv run python analysis/assumptions_dag.py            # print the assumptions
+    uv run python analysis/assumptions_dag.py --render   # (re)write dag.html
 """
 from __future__ import annotations
-from pathlib import Path
 
+import argparse
+import sys
+from pathlib import Path
+from typing import Optional
+
+import pandas as pd
+from dowhy import CausalModel
+
+# --------------------------------------------------------------------------- #
+# The assumption constants (frame-column spelling)
+# --------------------------------------------------------------------------- #
+TREATMENT = "hdi"
+ADJUSTMENT_SET = ["region", "yr"]       # the ONLY back-door confounders
+COLUMN_TO_NODE = {"region": "REGION (origin region / proximity & culture)",
+                  "yr": "YEAR (trip year: boom, transport, HDI drift)"}
+
+
+def _frame(d: pd.DataFrame, outcome: str) -> pd.DataFrame:
+    """The minimal analysis frame for a pooled model: outcome, treatment and
+    the adjustment set, with trip_year spelled as the categorical 'yr'."""
+    return d[[outcome, TREATMENT, "region"]].assign(
+        yr=d.trip_year.astype(int).astype(str))
+
+
+# --------------------------------------------------------------------------- #
+# Model construction + identification (moved here from refute.py)
+# --------------------------------------------------------------------------- #
+def make_causal_model(df: pd.DataFrame, treatment: str, outcome: str,
+                      common_causes: list[str],
+                      effect_modifiers: Optional[list[str]] = None) -> CausalModel:
+    """Build a DoWhy CausalModel from explicit confounders / effect modifiers.
+
+    Passing common_causes/effect_modifiers lets DoWhy assemble the graph; this is
+    less error-prone than hand-writing GML and matches the adjustment set in the DAG.
+    Prefer build_model(), which pins the arguments from this module's constants."""
+    return CausalModel(
+        data=df, treatment=treatment, outcome=outcome,
+        common_causes=common_causes,
+        effect_modifiers=effect_modifiers or [],
+    )
+
+
+def build_model(d: pd.DataFrame, outcome: str) -> CausalModel:
+    """The pooled Stage-A model: outcome ~ TREATMENT | ADJUSTMENT_SET.
+    `d` must carry hdi, region and trip_year (rows already outcome-complete)."""
+    return make_causal_model(_frame(d, outcome), TREATMENT, outcome,
+                             common_causes=list(ADJUSTMENT_SET))
+
+
+def identify(model: CausalModel):
+    return model.identify_effect(proceed_when_unidentifiable=True)
+
+
+def describe_estimand(identified_estimand) -> str:
+    """Compact rendering of the backdoor estimand + its stated assumptions
+    (DoWhy's full str() carries empty IV/frontdoor sections — trimmed here)."""
+    try:
+        be = identified_estimand.estimands["backdoor"]
+        lines = [f"backdoor estimand: {be['estimand']}"]
+        for name, text in (be.get("assumptions") or {}).items():
+            lines.append(f"  assumption [{name}]: {' '.join(str(text).split())}")
+        for col in ADJUSTMENT_SET:
+            lines.append(f"  adjusts for {col!r} = {COLUMN_TO_NODE[col]}")
+        return "\n".join(lines)
+    except Exception:
+        return str(identified_estimand).strip()
+
+
+def design_matrix(df: pd.DataFrame, outcome: str):
+    """(W, y, t, d): the adjustment set one-hot encoded the way DoWhy encodes
+    common causes (drop_first). The single W construction shared by the tuner
+    and the diagnostics, so their encoding cannot drift from the estimator's."""
+    d = df.dropna(subset=[outcome])
+    frame = _frame(d, outcome)
+    W = pd.get_dummies(frame[ADJUSTMENT_SET], drop_first=True,
+                       dtype=float).to_numpy()
+    return W, frame[outcome].to_numpy(float), frame[TREATMENT].to_numpy(float), d
+
+
+# --------------------------------------------------------------------------- #
+# The DAG itself (absorbed from generate_dag.py) — nodes, edges, renderer
+# --------------------------------------------------------------------------- #
 OUT = Path(__file__).resolve().parent / "dag.html"
 
-# ---- palette -------------------------------------------------------------
 ROLE = {
     "treat":    "#2563eb",
     "outcome":  "#16a34a",
@@ -249,5 +346,22 @@ def build_html():
 </body></html>
 """
 
-OUT.write_text(build_html(), encoding="utf-8")
-print(f"wrote {OUT}")
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Identification assumptions + DAG renderer.")
+    p.add_argument("--render", action="store_true", help="(Re)write analysis/dag.html.")
+    args = p.parse_args()
+    if args.render:
+        OUT.write_text(build_html(), encoding="utf-8")
+        print(f"wrote {OUT}")
+        return 0
+    print(f"treatment: {TREATMENT}")
+    print(f"adjustment set: {ADJUSTMENT_SET}")
+    for col, node in COLUMN_TO_NODE.items():
+        print(f"  {col!r} -> {node}")
+    print(f"DAG: {len(N)} nodes, {len(EDGES)} edges -> {OUT.name} (use --render)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

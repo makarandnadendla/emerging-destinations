@@ -52,11 +52,9 @@ import numpy as np
 import pandas as pd
 
 try:
-    from analysis.estimate import REGIONS
-    from analysis.sensitivity import _adjusted_coef as adjusted_coef
+    from analysis.estimate import REGIONS, adjusted_coef
 except ImportError:
-    from estimate import REGIONS
-    from sensitivity import _adjusted_coef as adjusted_coef
+    from estimate import REGIONS, adjusted_coef
 
 WAREHOUSE = "data/warehouse_japan.duckdb"
 SEED = 20240608

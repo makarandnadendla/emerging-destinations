@@ -75,10 +75,18 @@ Emerging Destinations Project/
 │   └── verify/               re-runnable data checks, run from the repo root
 │                             (stage spot-checks, clip & remoteness go/no-go)
 ├── analysis/
-│   ├── generate_dag.py       causal DAG -> dag.html (static SVG)
-│   ├── refute.py             pre-registered DoWhy refutation battery (7 tests)
-│   └── sensitivity.py        DAG node-specific refutations (negative control,
-│                             E-value, home-resolution agreement)
+│   ├── assumptions_dag.py    identification source of truth: adjustment-set
+│   │                         constants, CausalModel builder, estimand helper,
+│   │                         shared design matrix, dag.html renderer
+│   ├── estimate.py           Stage-A estimation: gate, within-region headline,
+│   │                         pooled estimator ladder + the DML/OLS machinery
+│   ├── refute.py             pre-registered refutations in one module: DoWhy
+│   │                         battery (7), design refutations (negative control,
+│   │                         E-value, home-resolution agreement), live driver
+│   ├── diagnostics.py        model assumptions & error metrics, numeric +
+│   │                         graphical (outputs/model_diagnostics.html)
+│   ├── tune_dml.py           Optuna nuisance tuning (predictive CV only)
+│   └── yardstick_vintage.py  OSM yardstick vintage rho check (measurement)
 ├── prototype/                slide-deck viz (STILL MOCKED DATA)
 │   ├── index.html / style.css / data.js / app.js / README.md
 ├── data/                     gitignored: raw + warehouse DuckDBs, parquet caches
