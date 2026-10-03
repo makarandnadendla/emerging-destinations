@@ -864,6 +864,16 @@ select:hover, select:focus {
   .slide-sub { font-size: 13px; }
 }
 
+/* ============ Forest slide (pooled vs within-region) ============ */
+.forest-stack {
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+.forest-stack > div { min-width: 0; }
+.forest-stack .caption-label { margin-bottom: 4px; }
+.forest-stack .chart { flex: 0 0 auto; overflow: visible; }
+
 /* ---- map city labels (docs real-data deck; HTML markers, no font deps) ---- */
 .map-city {
   font: 600 10px/1 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

@@ -397,6 +397,88 @@
     container.appendChild(plot);
   }
 
+  // ---------- forest: within-region slopes vs the pooled ladder ----------
+  // Slide 7's point drawn from the recorded numbers: the four within-region
+  // betas (REAL.headline) and the four pooled rungs (REAL.ladder) on one
+  // shared axis — opposite-signed regional effects collapse to a pooled null.
+  function renderForest() {
+    const withinEl = document.getElementById('forest-within');
+    const pooledEl = document.getElementById('forest-pooled');
+    if (!withinEl || !pooledEl) return;
+    withinEl.innerHTML = '';
+    pooledEl.innerHTML = '';
+
+    const REG_ORDER = ['Europe', 'Latin America', 'East Asia', 'Southeast Asia'];
+    const within = REG_ORDER
+      .map(reg => REAL.headline.find(h => h.region === reg))
+      .filter(Boolean)
+      .map(h => ({
+        row: h.region, ate: h.beta, lo: h.lo, hi: h.hi,
+        color: REGION_COLORS[REGION_DOMAIN.indexOf(h.region)],
+        emph: h.significant,
+        note: `${h.beta >= 0 ? '+' : ''}${h.beta.toFixed(3)}` +
+              (h.significant ? ` · p=${h.p.toFixed(3)}` : ' · n.s.')
+      }));
+    const width = Math.max(300, Math.floor(
+      withinEl.closest('.forest-stack').getBoundingClientRect().width) - 34);
+    const narrow = width < 600;
+    const RUNG_SHORT = narrow
+      ? { 1: 'OLS', 2: 'DML — linear', 3: "DML — 'auto' ◆", 4: 'DML — tuned' }
+      : { 1: 'OLS adjustment',
+          2: 'DML — linear nuisances',
+          3: "DML — 'auto' (pre-registered)",
+          4: 'DML — Optuna-tuned' };
+    const pooled = REAL.ladder.map(r => ({
+      row: RUNG_SHORT[r.rung] || r.label, ate: r.ate, lo: r.lo, hi: r.hi,
+      color: r.rung === 3 ? '#1A1A1A' : '#8A8A8A',
+      emph: r.rung === 3,
+      note: `${r.ate >= 0 ? '+' : ''}${r.ate.toFixed(3)} · n.s.`
+    }));
+
+    const all = within.concat(pooled);
+    const pad = 0.012;
+    const domain = [Math.min(...all.map(d => d.lo)) - pad,
+                    Math.max(...all.map(d => d.hi)) + pad];
+    const mL = narrow ? 128 : 215;
+    const mR = narrow ? 68 : 118;
+
+    const panel = (data, el, isBottom) => {
+      const plot = Plot.plot({
+        width,
+        height: data.length * (narrow ? 30 : 34) + (isBottom ? 58 : 16),
+        marginLeft: mL, marginRight: mR,
+        marginTop: 8, marginBottom: isBottom ? 46 : 8,
+        style: { background: 'transparent', fontFamily: 'inherit',
+                 fontSize: narrow ? '10px' : '12px' },
+        x: { domain, grid: true, label: isBottom
+               ? `Effect on first-trip remoteness per +${REAL.contrast.toFixed(2)} HDI →`
+               : null, ticks: isBottom ? undefined : [], labelOffset: 34 },
+        y: { domain: data.map(d => d.row), label: null },
+        marks: [
+          Plot.frame({ stroke: '#E5E3DC' }),
+          Plot.ruleX([0], { stroke: '#1A1A1A', strokeDasharray: '3,3',
+                            strokeOpacity: 0.55 }),
+          Plot.ruleY(data, { y: 'row', x1: 'lo', x2: 'hi', stroke: 'color',
+                             strokeWidth: (d) => d.emph ? 2.4 : 1.6 }),
+          Plot.dot(data, { y: 'row', x: 'ate', fill: 'color',
+                           r: (d) => d.emph ? 5.5 : 4 }),
+          Plot.text(data, { y: 'row', x: 'hi', text: 'note', dx: 7,
+                            textAnchor: 'start', fill: '#6B6B6B',
+                            fontSize: narrow ? 8.5 : 10,
+                            fontWeight: (d) => d.emph ? 700 : 400 }),
+          Plot.tip(data, Plot.pointer({
+            y: 'row', x: 'ate',
+            title: (d) => `${d.row}\n${d.ate >= 0 ? '+' : ''}${d.ate.toFixed(4)} ` +
+                          `[${d.lo.toFixed(4)}, ${d.hi.toFixed(4)}] per +${REAL.contrast.toFixed(2)} HDI`
+          }))
+        ]
+      });
+      el.appendChild(plot);
+    };
+    panel(within, withinEl, false);
+    panel(pooled, pooledEl, true);
+  }
+
   // ---------- heterogeneity: mean first-trip remoteness by origin region ----------
   function renderHetero() {
     const container = document.getElementById('hetero-chart');
@@ -629,6 +711,7 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       renderScatter();
+      renderForest();
       renderHetero();
       if (mapHandles) {
         mapHandles.longhaul.refit();
@@ -651,6 +734,7 @@
     mapHandles = { longhaul, regional };
 
     renderScatter();
+    renderForest();
     renderHetero();
 
     document.getElementById('season-filter').addEventListener('change', (e) => {

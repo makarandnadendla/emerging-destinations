@@ -349,11 +349,48 @@
     </div>
   </section>
 
-  <!-- ============ SLIDE 7: METHODS / RESULTS ============ -->
-  <section class="slide" aria-label="Slide 7: methods and results">
+  <!-- ============ SLIDE 7: THE POOLED EFFECT (Act III) ============ -->
+  <section class="slide" aria-label="Slide 7: the pooled effect — what one regression for everyone concludes">
     <div class="slide-inner">
       <div class="slide-head">
-        <div class="slide-num">7 / 7 · APPENDIX</div>
+        <div class="slide-num">7 / 8 · ACT III — POOL IT</div>
+        <h2>Run one regression instead — and the effect vanishes</h2>
+        <p class="slide-sub">
+          Same data, same region + year adjustment as the previous slide; the only change is
+          forcing a <strong>single HDI slope on everyone</strong>. Shown: the full pooled ladder —
+          OLS, then debiased ML (LinearDML) with three nuisance choices, rung 3 pre-registered.
+        </p>
+      </div>
+
+      <div class="caption big" style="margin-bottom: 14px;">
+        <p>
+          <span class="sent lead">Opposite truths average to nothing.</span>
+          <span class="sent">Europe's +0.054 and Latin America's −0.104 enter the pooled slope
+          with opposite signs, so the one-number answer is a confident-looking ≈&nbsp;0 — read
+          alone, it would call this study "H4, development doesn't matter" and be wrong twice.
+          And it is not an estimator problem: plain OLS and all three debiased-ML rungs agree to
+          the third decimal. Pooling, not estimation, is what erases the story.</span>
+        </p>
+      </div>
+
+      <div class="chart-stretch forest-stack">
+        <div>
+          <div class="caption-label">One slope per region — the H3 answer (previous slide)</div>
+          <div id="forest-within" class="chart" aria-label="Forest plot: within-region HDI slopes with 95% confidence intervals"></div>
+        </div>
+        <div>
+          <div class="caption-label">One pooled slope — the estimator ladder, all four rungs</div>
+          <div id="forest-pooled" class="chart" aria-label="Forest plot: pooled ladder estimates with 95% confidence intervals, all crossing zero"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 8: METHODS / RESULTS ============ -->
+  <section class="slide" aria-label="Slide 8: methods and results">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">8 / 8 · APPENDIX</div>
         <h2>Methods &amp; results</h2>
       </div>
 

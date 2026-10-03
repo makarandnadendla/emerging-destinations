@@ -1,6 +1,6 @@
 # docs/ — the real-data slide deck
 
-Seven-slide horizontal deck telling the study as a story in three acts:
+Eight-slide horizontal deck telling the study as a story in three acts:
 
 1. **Hero** — the question.
 2. **Act I · Hypotheses** — the four pre-registered rival theories (H1 acclimation,
@@ -12,7 +12,11 @@ Seven-slide horizontal deck telling the study as a story in three acts:
 5. **Act III · Identify** — the causal map (simplified DAG): why region + year
    are adjusted and mediators are left open.
 6. **Act III · Estimate** — the adjusted within-region HDI slopes: the H3 answer.
-7. **Appendix** — full methods & results.
+7. **Act III · Pool it** — the counterfactual analysis choice: one pooled slope
+   (the full OLS→DML ladder, from the recorded runs) lands on a null — showing
+   how opposite-signed regional effects cancel when you don't estimate
+   per region.
+8. **Appendix** — full methods & results.
 
 This is the real-data successor to the gitignored `prototype/` mock deck —
 same visual design, every number real.
