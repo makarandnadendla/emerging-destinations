@@ -13,7 +13,7 @@ analysis/outputs/estimate_results.json (written by estimate.py --run), and
 the refutation-battery rows from the refutation reports in analysis/outputs/
 (written by refute.py --run). The deck therefore shows exactly what the
 recorded runs produced; this script only adds the privacy-safe DATA
-aggregates (cells, origins, composition, region means, scatter anchors).
+aggregates (cells, origins, region means, scatter anchors).
 
 Output is a .js file (window.REAL = {...}) instead of .json so the deck can
 load it with a plain <script> tag — no fetch, no CORS, works over file://.
@@ -132,24 +132,6 @@ def main() -> int:
         for r in cells.to_dict("records")
     ]
 
-    # ---- composition: photo-visit share by origin region x remoteness band -- #
-    q = con.execute("""
-        SELECT quantile_cont(remoteness_norm, 0.25) q25,
-               quantile_cont(remoteness_norm, 0.75) q75
-        FROM cell_remoteness
-    """).fetchone()
-    comp = con.execute(f"""
-        SELECT uf.origin_iso,
-               SUM(CASE WHEN cr.remoteness_norm <  {q[0]} THEN 1 ELSE 0 END) AS golden,
-               SUM(CASE WHEN cr.remoteness_norm >= {q[1]} THEN 1 ELSE 0 END) AS offpath
-        FROM photos ph
-        JOIN user_destination ud USING (user_id_hash)
-        JOIN user_features uf USING (user_id_hash)
-        JOIN cell_remoteness cr ON cr.h3_r6 = ph.h3_r6
-        WHERE ph.taken_ts IS NOT NULL
-          AND EXTRACT(year FROM ph.taken_ts) BETWEEN 2012 AND 2019
-        GROUP BY 1
-    """).df()
     n_photos_window = int(con.execute("""
         SELECT COUNT(*) FROM photos ph
         JOIN user_destination ud USING (user_id_hash)
@@ -158,14 +140,6 @@ def main() -> int:
     """).fetchone()[0])
     n_cohort = int(con.execute("SELECT COUNT(*) FROM user_features").fetchone()[0])
     con.close()
-
-    comp["region"] = comp.origin_iso.map(REGIONS).fillna("Other")
-    region_users = df.groupby("region").size()
-    comp_rows = [
-        {"region": reg, "golden": int(g.golden.sum()), "offpath": int(g.offpath.sum())}
-        for reg, g in comp.groupby("region")
-        if int(region_users.get(reg, 0)) >= floor   # same suppression floor
-    ]
 
     # ---- origins (floor applied) ------------------------------------------ #
     org = (df.dropna(subset=["y_first_trip"])
@@ -245,7 +219,6 @@ def main() -> int:
         "headline": headline,
         "ladder": ladder,
         "battery": battery,
-        "composition": comp_rows,
         "cell_columns": ["lat", "lon", "remoteness",
                          *[f"LH_{s}" for s in SEASONS], *[f"RG_{s}" for s in SEASONS]],
         "cells": cell_arr,

@@ -1,9 +1,8 @@
 # docs/ — the real-data slide deck
 
-Six-slide horizontal deck presenting the study's real results: twin photo-density
+Five-slide horizontal deck presenting the study's real results: twin photo-density
 heatmaps of Japan (long-haul vs regional, season-filterable), the within-region
-HDI slopes (the H3 finding), region means, Golden-Route vs off-path composition,
-and the full methods/results summary.
+HDI slopes (the H3 finding), region means, and the full methods/results summary.
 
 This is the real-data successor to the gitignored `prototype/` mock deck —
 same visual design, every number real.
@@ -17,8 +16,8 @@ same visual design, every number real.
   `uv run python analysis/estimate.py --run`;
 - refutation rows are read from the reports written by
   `uv run python analysis/refute.py --run`;
-- data aggregates (cell × group × season photo counts, origin rollups,
-  composition) are grouped straight from the DuckDB warehouse — **no
+- data aggregates (cell × group × season photo counts, origin rollups)
+  are grouped straight from the DuckDB warehouse — **no
   user-level rows**, with the `min_origin_users` suppression floor applied.
 
 To regenerate after a new run:

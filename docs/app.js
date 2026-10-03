@@ -464,57 +464,6 @@
     container.appendChild(plot);
   }
 
-  // ---------- composition: who fills the Golden Route vs the off-path cells ----------
-  function renderComposition() {
-    const container = document.getElementById('composition-chart');
-    if (!container) return;
-    container.innerHTML = '';
-    const { width, height } = chartSize(container, { minHeight: 200 });
-    const chartH = Math.max(140, height - 50);
-
-    const rows = [];
-    for (const c of REAL.composition) {
-      rows.push({ band: 'Golden Route cells (bottom 25% remoteness)', region: c.region, w: c.golden });
-      rows.push({ band: 'Off-path cells (top 25% remoteness)',         region: c.region, w: c.offpath });
-    }
-
-    const plot = Plot.plot({
-      width,
-      height: chartH,
-      marginLeft: 260,
-      marginRight: 18,
-      marginTop: 24,
-      marginBottom: 50,
-      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '12px' },
-      x: { label: 'Share of geotagged photos →', percent: true, grid: true, labelOffset: 36 },
-      y: { label: null, domain: [
-          'Golden Route cells (bottom 25% remoteness)',
-          'Off-path cells (top 25% remoteness)'
-        ] },
-      color: {
-        legend: true,
-        domain: REGION_DOMAIN,
-        range: REGION_COLORS,
-        label: 'Origin region'
-      },
-      marks: [
-        Plot.barX(
-          rows,
-          Plot.stackX(
-            { offset: 'normalize', order: REGION_DOMAIN, reverse: false },
-            Plot.groupY(
-              { x: 'sum' },
-              { y: 'band', x: 'w', fill: 'region' }
-            )
-          )
-        ),
-        Plot.ruleX([0, 1])
-      ]
-    });
-
-    container.appendChild(plot);
-  }
-
   // ---------- slide navigation + auto-advance ----------
   function setupDeck(mapHandles) {
     const deck = document.getElementById('deck');
@@ -685,7 +634,6 @@
     resizeTimer = setTimeout(() => {
       renderScatter();
       renderHetero();
-      renderComposition();
       if (mapHandles) {
         mapHandles.longhaul.refit();
         mapHandles.regional.refit();
@@ -708,7 +656,6 @@
 
     renderScatter();
     renderHetero();
-    renderComposition();
 
     document.getElementById('season-filter').addEventListener('change', (e) => {
       const season = e.target.value;
