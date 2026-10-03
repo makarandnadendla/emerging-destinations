@@ -188,44 +188,32 @@ def _design(d: pd.DataFrame, treatment: str, numeric: list[str],
 def adjusted_coef(d: pd.DataFrame, outcome: str, treatment: str,
                   numeric: list[str], categorical: list[str],
                   cluster_col, ci_level: float):
-    """Return (beta, se, (ci_lo, ci_hi), p, dof) for `treatment`, with cluster-
-    robust SEs when cluster_col is given (CR1), else HC1. The Tier-1 headline,
-    rung 1 and the design refutations all run on this one estimator."""
-    from scipy import stats
+    """Return (beta, se, (ci_lo, ci_hi), p, dof) for `treatment`: statsmodels
+    OLS on the shared _design matrix, cluster-robust when cluster_col is given
+    (CR1 — cov_type="cluster" with the G/(G-1)*(n-1)/(n-k) correction, t with
+    G-1 dof), else HC1 (t with n-k dof). The Tier-1 headline, rung 1 and the
+    design refutations all run on this one estimator."""
+    import statsmodels.api as sm
 
     X, names = _design(d, treatment, numeric, categorical)
     y = d[outcome].to_numpy(float)
     j = names.index(treatment)
     n, kf = X.shape
 
-    XtX_inv = np.linalg.pinv(X.T @ X)
-    beta_vec = XtX_inv @ (X.T @ y)
-    resid = y - X @ beta_vec
-    beta = float(beta_vec[j])
-
     if cluster_col is not None:
         groups = d[cluster_col].to_numpy()
-        uniq = np.unique(groups)
-        G = len(uniq)
-        meat = np.zeros((kf, kf))
-        for g in uniq:
-            m = groups == g
-            sg = X[m].T @ resid[m]
-            meat += np.outer(sg, sg)
-        adj = (G / (G - 1.0)) * ((n - 1.0) / (n - kf)) if G > 1 else 1.0
-        V = adj * (XtX_inv @ meat @ XtX_inv)
-        dof = max(G - 1, 1)
+        res = sm.OLS(y, X).fit(cov_type="cluster",
+                               cov_kwds={"groups": groups}, use_t=True)
+        dof = max(len(np.unique(groups)) - 1, 1)
     else:
-        meat = (X * (resid ** 2)[:, None]).T @ X
-        V = (n / (n - kf)) * (XtX_inv @ meat @ XtX_inv)
+        res = sm.OLS(y, X).fit(cov_type="HC1", use_t=True)
         dof = max(n - kf, 1)
 
-    se = float(np.sqrt(max(V[j, j], 0.0)))
-    tcrit = float(stats.t.ppf(0.5 + ci_level / 2.0, dof))
-    ci = (beta - tcrit * se, beta + tcrit * se)
-    tstat = beta / se if se > 0 else 0.0
-    pval = float(2 * stats.t.sf(abs(tstat), dof))
-    return beta, se, ci, pval, dof
+    beta = float(res.params[j])
+    se = float(res.bse[j])
+    lo, hi = (float(v) for v in res.conf_int(alpha=1.0 - ci_level)[j])
+    pval = float(res.pvalues[j])
+    return beta, se, (lo, hi), pval, dof
 
 # Origin -> region (Stage-A pinned artifact; promoted from the assumption EDA).
 REGIONS = {}

@@ -23,6 +23,7 @@ dependencies = [
     "reverse-geocoder>=1.5.1",
     "scikit-learn>=1.6.1",
     "scipy>=1.15.3",
+    "statsmodels>=0.14.6",
     "wbgapi>=1.0.14",
 ]
 

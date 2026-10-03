@@ -515,6 +515,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "statsmodels" },
     { name = "wbgapi" },
 ]
 
@@ -538,6 +539,7 @@ requires-dist = [
     { name = "reverse-geocoder", specifier = ">=1.5.1" },
     { name = "scikit-learn", specifier = ">=1.6.1" },
     { name = "scipy", specifier = ">=1.15.3" },
+    { name = "statsmodels", specifier = ">=0.14.6" },
     { name = "wbgapi", specifier = ">=1.0.14" },
 ]
 
