@@ -332,26 +332,35 @@ def load_frame(gap_days: int = GAP_DAYS) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # The identification gate (the stated scope condition, computed + printed)
 # --------------------------------------------------------------------------- #
-def identification_gate(df: pd.DataFrame, verbose: bool = True) -> list[str]:
+def gate_table(df: pd.DataFrame) -> list[dict]:
+    """The scope-condition table as rows (consumed by --run's results JSON
+    and by identification_gate below)."""
     g = (df.groupby("region")
            .agg(users=("hdi", "size"), origins=("origin_iso", "nunique"),
                 hdi_sd=("hdi", "std"))
            .fillna(0.0))
-    g["sd_ok"] = g.hdi_sd >= MIN_HDI_SD
-    g["n_ok"] = g.users >= MIN_REGION_USERS
-    g["in_scope"] = g.sd_ok & g.n_ok
+    g["in_scope"] = (g.hdi_sd >= MIN_HDI_SD) & (g.users >= MIN_REGION_USERS)
+    return [
+        {"region": reg, "users": int(r.users), "origins": int(r.origins),
+         "hdi_sd": round(float(r.hdi_sd), 4), "in_scope": bool(r.in_scope),
+         "verdict": ("IN SCOPE" if r.in_scope else
+                     "descriptive only — " +
+                     ("no within-region HDI variation" if r.hdi_sd < MIN_HDI_SD
+                      else "too few users"))}
+        for reg, r in g.sort_values("users", ascending=False).iterrows()
+    ]
+
+
+def identification_gate(df: pd.DataFrame, verbose: bool = True) -> list[str]:
+    rows = gate_table(df)
     if verbose:
         print("\nSCOPE CONDITION — causal estimation only where HDI varies within region")
         print(f"  gate: HDI sd >= {MIN_HDI_SD}  AND  users >= {MIN_REGION_USERS}")
         print(f"  {'region':<20} {'users':>6} {'origins':>8} {'HDI sd':>8}  verdict")
-        for reg, r in g.sort_values("users", ascending=False).iterrows():
-            why = ("IN SCOPE" if r.in_scope else
-                   "descriptive only — " +
-                   ("no within-region HDI variation" if not r.sd_ok else
-                    "too few users"))
-            print(f"  {reg:<20} {int(r.users):>6} {int(r.origins):>8} "
-                  f"{r.hdi_sd:>8.3f}  {why}")
-    return sorted(g.index[g.in_scope])
+        for r in rows:
+            print(f"  {r['region']:<20} {r['users']:>6} {r['origins']:>8} "
+                  f"{r['hdi_sd']:>8.3f}  {r['verdict']}")
+    return sorted(r["region"] for r in rows if r["in_scope"])
 
 
 # --------------------------------------------------------------------------- #
@@ -391,11 +400,15 @@ def loo_origins(d: pd.DataFrame, outcome: str) -> str:
 
 
 def run_within_region(df: pd.DataFrame, outcome: str, label: str,
-                      in_scope: list[str], drop_conflicts: bool = False) -> None:
+                      in_scope: list[str],
+                      drop_conflicts: bool = False) -> list[dict]:
+    """Prints the within-region block and returns its rows (one per estimated
+    region) so --run can record them in outputs/estimate_results.json."""
     d = df.copy()
     if drop_conflicts:
         d = d[d.agree_flag != False]          # noqa: E712 (keep NULL-modal users)
     d = d.dropna(subset=[outcome])
+    rows: list[dict] = []
     print(f"\n=== {label}  (n={len(d):,}) — effects per +{CONTRAST:.2f} HDI ===")
     for reg in in_scope:
         sub = d[d.region == reg]
@@ -403,9 +416,13 @@ def run_within_region(df: pd.DataFrame, outcome: str, label: str,
             print(f"  {reg:<18} n={len(sub):>4}  (spec subset too small, skipped)")
             continue
         b, ci, p, dof = region_estimate(sub, outcome)
+        loo = loo_origins(sub, outcome)
         print(f"  {reg:<18} n={len(sub):>4}  beta={b:+.4f}  "
               f"[95% CI {ci[0]:+.4f}, {ci[1]:+.4f}]  p={p:.3f} (dof={dof})")
-        print(f"  {'':<18} {loo_origins(sub, outcome)}")
+        print(f"  {'':<18} {loo}")
+        rows.append({"region": reg, "n": int(len(sub)), "beta": round(b, 4),
+                     "lo": round(ci[0], 4), "hi": round(ci[1], 4),
+                     "p": round(p, 4), "dof": int(dof), "loo": loo})
     # descriptive tier — out-of-scope regions, labeled
     out = sorted(set(d.region.unique()) - set(in_scope))
     if out:
@@ -413,6 +430,7 @@ def run_within_region(df: pd.DataFrame, outcome: str, label: str,
         desc = "  ·  ".join(f"{r} {m['mean']:.3f} (n={int(m['size'])})"
                             for r, m in means.iterrows())
         print(f"  [descriptive only, NO causal estimate] {desc}")
+    return rows
 
 
 # --------------------------------------------------------------------------- #
@@ -421,10 +439,11 @@ def run_within_region(df: pd.DataFrame, outcome: str, label: str,
 # optionally LinearDML(tuned). Agreement across rungs shows the pooled number
 # is not an estimator artifact; disagreement localizes where complexity matters.
 # --------------------------------------------------------------------------- #
-def run_pooled_ols(df: pd.DataFrame, outcome: str, label: str) -> float:
+def run_pooled_ols(df: pd.DataFrame, outcome: str, label: str) -> dict:
     """Simplest rung: OLS of Y on HDI + region + year dummies, origin-clustered
     SEs — one-step parametric adjustment, no orthogonalization or cross-fitting.
-    Same machinery as the within-region headline (sensitivity._adjusted_coef)."""
+    Same machinery as the within-region headline (adjusted_coef). Returns the
+    printed numbers for the --run results JSON."""
     d = df.dropna(subset=[outcome]).rename(columns={outcome: "_y"}).copy()
     d["yr"] = d.trip_year.astype(int).astype(str)
     beta, se, ci, p, dof = adjusted_coef(
@@ -434,7 +453,9 @@ def run_pooled_ols(df: pd.DataFrame, outcome: str, label: str) -> float:
     print(f"  ATE per +{CONTRAST:.2f} HDI: {beta * CONTRAST:+.4f} "
           f"[95% CI {ci[0] * CONTRAST:+.4f}, {ci[1] * CONTRAST:+.4f}]  "
           f"p={p:.3f} (dof={dof}, n={len(d):,})")
-    return beta * CONTRAST
+    return {"ate": round(beta * CONTRAST, 4),
+            "lo": round(ci[0] * CONTRAST, 4), "hi": round(ci[1] * CONTRAST, 4),
+            "p": round(p, 4), "dof": int(dof), "n": int(len(d))}
 
 
 def fit_pooled_dml(df: pd.DataFrame, outcome: str, nuisances: str = "auto",
@@ -456,7 +477,7 @@ def fit_pooled_dml(df: pd.DataFrame, outcome: str, nuisances: str = "auto",
 
 
 def run_pooled_dml(df: pd.DataFrame, outcome: str, label: str,
-                   nuisances: str = "auto") -> float:
+                   nuisances: str = "auto") -> dict:
     """Rungs 2-4 run through DoWhy's interface (method name
     'backdoor.econml.dml.LinearDML', via estimate_dml above): the identical
     CausalModel -> identify_effect -> estimate chain the refutation battery
@@ -474,7 +495,8 @@ def run_pooled_dml(df: pd.DataFrame, outcome: str, label: str,
     print(f"  ATE per +{CONTRAST:.2f} HDI: {ate:+.4f} "
           f"[95% CI {lo:+.4f}, {hi:+.4f}]  (n={len(d):,}; dominated by regions "
           f"with real HDI variation — DML self-localizes)")
-    return ate
+    return {"ate": round(ate, 4), "lo": round(lo, 4), "hi": round(hi, 4),
+            "n": int(len(d))}
 
 
 # --------------------------------------------------------------------------- #
@@ -538,8 +560,8 @@ def selftest() -> int:
     dfl = pd.DataFrame({"region": regl, "origin_iso": regl,
                         "trip_year": rng.integers(2012, 2020, nl), "hdi": hdil,
                         "y": 0.2 + 0.3 * hdil + rng.normal(0, 0.05, nl)})
-    b_ols = run_pooled_ols(dfl, "y", "selftest ladder DGP")
-    b_lin = run_pooled_dml(dfl, "y", "selftest ladder DGP", nuisances="linear")
+    b_ols = run_pooled_ols(dfl, "y", "selftest ladder DGP")["ate"]
+    b_lin = run_pooled_dml(dfl, "y", "selftest ladder DGP", nuisances="linear")["ate"]
     ok_d = abs(b_ols - 0.03) < 0.005 and abs(b_lin - 0.03) < 0.005
     print(f"[selftest] ladder rungs 1/2: OLS {b_ols:+.4f}, linear-DML {b_lin:+.4f} "
           f"(true +0.0300)  -> {'OK' if ok_d else 'FAIL'}")
@@ -559,19 +581,25 @@ def main() -> int:
     if args.selftest:
         return selftest()
     if args.run:
+        import json
+        from datetime import datetime
+
         df = load_frame(args.gap_days)
         in_scope = identification_gate(df)
-        run_within_region(df, "y_first_trip",
-                          "HEADLINE: first-trip outcome, within-region",
-                          in_scope)
-        run_within_region(df, "y_first_trip",
-                          "SENSITIVITY: first-trip, stated-modal conflicts dropped",
-                          in_scope, drop_conflicts=True)
-        run_within_region(df, "y_pooled",
-                          "SENSITIVITY: pooled all-trips outcome",
-                          in_scope)
+        within = {
+            "headline": run_within_region(
+                df, "y_first_trip",
+                "HEADLINE: first-trip outcome, within-region", in_scope),
+            "conflicts_dropped": run_within_region(
+                df, "y_first_trip",
+                "SENSITIVITY: first-trip, stated-modal conflicts dropped",
+                in_scope, drop_conflicts=True),
+            "pooled_outcome": run_within_region(
+                df, "y_pooled",
+                "SENSITIVITY: pooled all-trips outcome", in_scope),
+        }
         if df.y_vin.notna().any():
-            run_within_region(
+            within["vintage"] = run_within_region(
                 df, "y_vin",
                 f"ROBUSTNESS: first-trip outcome, {VINTAGE['label']} vintage "
                 "yardstick (completeness-limited ruler — yardstick_vintage.py)",
@@ -579,18 +607,39 @@ def main() -> int:
         # One identification statement for the pooled tier (identical across
         # rungs 2-4 — the ladder varies only the nuisance models).
         d1 = df.dropna(subset=["y_first_trip"])
+        estimand = describe_estimand(identify(build_model(d1, "y_first_trip")))
         print("\nIDENTIFICATION (pooled tier — DoWhy backdoor, "
               "adjustment set from assumptions_dag.py):")
-        print("  " + describe_estimand(identify(build_model(d1, "y_first_trip")))
-              .replace("\n", "\n  "))
-        run_pooled_ols(df, "y_first_trip", "first-trip outcome")
-        run_pooled_dml(df, "y_first_trip", "first-trip outcome", nuisances="linear")
-        run_pooled_dml(df, "y_first_trip", "first-trip outcome")
+        print("  " + estimand.replace("\n", "\n  "))
+        ladder = [{"rung": 1, "label": "pooled OLS (origin-clustered)",
+                   **run_pooled_ols(df, "y_first_trip", "first-trip outcome")},
+                  {"rung": 2, "label": "LinearDML, linear nuisances (Robinson)",
+                   **run_pooled_dml(df, "y_first_trip", "first-trip outcome",
+                                    nuisances="linear")},
+                  {"rung": 3, "label": "LinearDML, 'auto' nuisances (pre-registered)",
+                   **run_pooled_dml(df, "y_first_trip", "first-trip outcome")}]
         if TUNING_JSON.exists():
-            run_pooled_dml(df, "y_first_trip", "first-trip outcome", nuisances="tuned")
+            ladder.append({"rung": 4, "label": "LinearDML, Optuna-tuned nuisances",
+                           **run_pooled_dml(df, "y_first_trip", "first-trip outcome",
+                                            nuisances="tuned")})
         else:
             print(f"\n  [rung 4 skipped — {TUNING_JSON.name} not found; "
                   f"run `uv run python analysis/tune_dml.py` to add it]")
+
+        # Machine-readable record of THIS run — the single source the deck
+        # exporter (analysis/export_aggregates.py) reads its numbers from.
+        results = {
+            "generated": datetime.now().isoformat(timespec="seconds"),
+            "gap_days": args.gap_days, "contrast": CONTRAST, "seed": SEED,
+            "n_frame": int(len(df)), "n_first_trip": int(len(d1)),
+            "estimand": estimand,
+            "gate": gate_table(df), "in_scope": in_scope,
+            "within_region": within, "ladder": ladder,
+        }
+        out = TUNING_JSON.parent / "estimate_results.json"
+        out.parent.mkdir(exist_ok=True)
+        out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+        print(f"\n-> wrote {out}")
         return 0
     print("Nothing to do: pass --selftest or --run.")
     return 0

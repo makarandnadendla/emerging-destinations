@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Off the Golden Route — Emerging Destinations / Japan</title>
+  <meta name="description" content="Does origin-country development predict who leaves Japan's Golden Route? Real Flickr data, 2012–2019: the answer is heterogeneous — the HDI slope is positive within Europe, negative within Latin America, null in East and Southeast Asia.">
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="preconnect" href="https://unpkg.com">
+
+  <!-- MapLibre CSS -->
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="progress" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>
+
+<main id="deck" class="deck" role="region" aria-label="Slide deck">
+
+  <!-- ============ SLIDE 1: HERO ============ -->
+  <section class="slide slide-hero" aria-label="Slide 1: title">
+    <div class="slide-inner">
+      <div class="hero-inner">
+        <div class="kicker">PORTFOLIO PROJECT · REAL FLICKR DATA · JAPAN 2012–2019</div>
+        <h1>Off the Golden&nbsp;Route</h1>
+        <p class="lede">
+          Almost every foreign visitor in Japan funnels through the same 600&nbsp;km corridor:
+          <strong>Tokyo&nbsp;→ Hakone&nbsp;→ Fuji&nbsp;→ Kyoto&nbsp;→ Nara&nbsp;→ Osaka&nbsp;→ Hiroshima</strong>.
+          Does origin-country development predict who actually leaves it?
+          The data's answer is <strong>heterogeneity</strong>: within Europe, more-developed origins
+          venture <em>further</em> off-path; within Latin America the sign flips; across East and
+          Southeast Asia, development predicts nothing at all.
+        </p>
+        <div class="meta">
+          <span><span class="dot dot-longhaul"></span>Long-haul (Europe / Americas / Oceania / MEA / S&thinsp;Asia)</span>
+          <span><span class="dot dot-regional"></span>Regional (E&thinsp;Asia / SE&thinsp;Asia)</span>
+          <span class="meta-sep">·</span>
+          <span id="trip-count">— travelers</span>
+          <span class="meta-sep">·</span>
+          <span>H3&nbsp;r6 hexes · ~36&nbsp;km²</span>
+        </div>
+        <button class="hero-cta" id="hero-cta" type="button" aria-label="Start the deck">
+          <span class="cta-shine" aria-hidden="true"></span>
+          <span class="cta-text">See the data</span>
+          <span class="cta-kbd" aria-hidden="true">→</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 2: TWIN MAPS (full-bleed) ============ -->
+  <section class="slide slide-maps" aria-label="Slide 2: twin maps of Japan">
+    <div class="maps-toolbar">
+      <div class="toolbar-left">
+        <span class="slide-num inline">2 / 6</span>
+        <h2 class="toolbar-title">Where they actually photograph in Japan</h2>
+      </div>
+      <div class="toolbar-right">
+        <label for="season-filter" class="control-label">Season:</label>
+        <select id="season-filter" aria-label="Filter both maps by travel season">
+          <option value="all">All seasons</option>
+          <option value="Spring">Spring · sakura (Mar–May)</option>
+          <option value="Summer">Summer · matsuri (Jun–Aug)</option>
+          <option value="Autumn">Autumn · kōyō (Sep–Nov)</option>
+          <option value="Winter">Winter · ski / onsen (Dec–Feb)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="maps-fullbleed">
+      <div class="map-panel">
+        <div id="map-longhaul" class="map" role="img" aria-label="Japan map: long-haul travelers' photo density"></div>
+        <div class="map-overlay map-overlay-tl">
+          <div class="overlay-label"><span class="dot dot-longhaul"></span>Long-haul travelers</div>
+          <p class="overlay-takeaway">
+            <span class="sent lead">The corridor, plus a thin western tail.</span>
+            <span class="sent">Mass concentrates on Tokyo–Kyoto–Osaka with a clear Hiroshima–Miyajima
+            extension and traces along the Nakasendō and Kanazawa — but the periphery stays faint.</span>
+          </p>
+          <div class="overlay-stat" id="stat-longhaul">—</div>
+        </div>
+      </div>
+      <div class="map-panel">
+        <div id="map-regional" class="map" role="img" aria-label="Japan map: regional travelers' photo density"></div>
+        <div class="map-overlay map-overlay-tl">
+          <div class="overlay-label"><span class="dot dot-regional"></span>Regional travelers</div>
+          <p class="overlay-takeaway">
+            <span class="sent lead">The corridor — and a second Japan.</span>
+            <span class="sent">East- and Southeast-Asian flows light the Golden Route too, but put
+            visibly more mass on Hokkaido (winter ski) and Kyushu's short-haul gateways than the
+            long-haul map registers.</span>
+          </p>
+          <div class="overlay-stat" id="stat-regional">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="maps-legend">
+      <span>Photo density (real):</span>
+      <span style="color: var(--ink-mute);">low</span>
+      <span class="legend-bar" aria-hidden="true"></span>
+      <span style="color: var(--ink-mute);">high</span>
+      <span style="margin-left:auto; font-size:11px; color: var(--ink-mute);">geotagged Flickr photos per H3 r6 cell · log-scaled</span>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 3: WITHIN-REGION SLOPES ============ -->
+  <section class="slide" aria-label="Slide 3: HDI vs remoteness, within regions">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">3 / 6</div>
+        <h2>Within-region HDI slopes — the H3 answer, estimated</h2>
+      </div>
+
+      <div class="captions captions-2col big">
+        <div class="caption caption-longhaul">
+          <div class="caption-label"><span class="dot dot-longhaul"></span>Europe · status-good</div>
+          <p>
+            <span class="sent lead">+0.054 per +0.10 HDI (p=.005).</span>
+            <span class="sent">Across 27 European origins, higher development pushes first trips
+            further off the corridor. Sign-stable under leave-one-origin-out.</span>
+          </p>
+        </div>
+        <div class="caption caption-regional">
+          <div class="caption-label"><span class="dot dot-regional"></span>Latin America · acclimation</div>
+          <p>
+            <span class="sent lead">−0.104 per +0.10 HDI (p=.002).</span>
+            <span class="sent">Across 11 Latin-American origins the sign flips: higher development
+            keeps first trips closer to the beaten path. Also LOO sign-stable.
+            East &amp; Southeast Asia: no credible effect (East Asia rests on a two-point contrast).</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="chart-stretch">
+        <div id="scatter-chart" class="chart" aria-label="Origin-level scatter of HDI vs first-trip remoteness, faceted by in-scope region, with the estimated within-region slopes"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 4: REGION MEANS ============ -->
+  <section class="slide" aria-label="Slide 4: mean remoteness by origin region">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">4 / 6</div>
+        <h2>Mean off-path-ness by origin region</h2>
+      </div>
+
+      <div class="caption big" style="margin-bottom: 16px;">
+        <p>
+          <span class="sent lead">No tidy long-haul vs regional split — the levels refuse the cliché.</span>
+          <span class="sent">East-Asian travelers post the <em>highest</em> mean first-trip remoteness
+          of any large region (ski Hokkaido, Kyushu), Europeans and North Americans sit mid-pack, and
+          Latin America lowest. Between-region levels mix distance, season, and trip style — which is
+          exactly why the causal question is answered <em>within</em> regions (slide 3), never by
+          comparing these bars.</span>
+        </p>
+      </div>
+
+      <div class="chart-stretch">
+        <div id="hetero-chart" class="chart" aria-label="Bar chart of mean first-trip remoteness by origin region"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 5: COMPOSITION ============ -->
+  <section class="slide" aria-label="Slide 5: who fills which cells">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">5 / 6</div>
+        <h2>Who fills the Golden Route vs the off-path cells</h2>
+      </div>
+
+      <div class="caption big" style="margin-bottom: 16px;">
+        <p>
+          <span class="sent lead">Volume beats stereotype.</span>
+          <span class="sent">East-Asian photographers supply 42% of the photos in the least-remote
+          quarter of cells — and 61% in the most-remote quarter. The off-path interior is not a
+          Western preserve; it is mostly photographed by Japan's neighbors. Composition reflects
+          who travels at all, which is why it can't answer the causal question either.</span>
+        </p>
+      </div>
+
+      <div class="chart-stretch">
+        <div id="composition-chart" class="chart" aria-label="Stacked bar chart of origin region composition by cell remoteness band"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 6: METHODS / RESULTS ============ -->
+  <section class="slide" aria-label="Slide 6: methods and results">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">6 / 6</div>
+        <h2>Methods &amp; results</h2>
+      </div>
+
+      <div class="methods-body">
+        <p>
+          <strong>Real data.</strong> 2,801 cohort travelers · 278k geotagged Flickr photos inside
+          Japan (2012–2019) · 39 origin countries shown (n≥5 suppression floor; everything on this
+          page is aggregated — no user-level rows). Remoteness = inverse OSM POI density
+          (−ln(1+POI), min-max normalized) on an H3 r6 grid; outcome = photo-weighted mean cell
+          remoteness of the <em>first</em> trip (a controlled direct effect at trip #1, immune to
+          repeat-trip selection).
+        </p>
+        <p>
+          <strong>Identification.</strong> Backdoor adjustment set = origin region + trip year
+          (DoWhy-identified estimand; mediators left open for the total effect). A pre-stated gate
+          restricts causal estimation to regions where HDI actually varies within region
+          (sd ≥ 0.02, n ≥ 50): Europe, East Asia, Southeast Asia, Latin America. North America and
+          Oceania are descriptive-only — their origin pools have structurally constant HDI.
+        </p>
+        <p>
+          <strong>Headline (per +0.10 HDI, origin-clustered SEs, leave-one-origin-out).</strong>
+          Europe <strong>+0.054</strong> [+0.018, +0.090], p=.005, sign-stable ·
+          Latin America <strong>−0.104</strong> [−0.158, −0.050], p=.002, sign-stable ·
+          East Asia +0.013 (p=.38; two-point contrast, uninformative) ·
+          Southeast Asia −0.002 (p=.81; precise null). Robust to dropping stated-vs-modal home
+          conflicts, to the pooled all-trips outcome, to trip-gap rules 14/30/60 days, and it
+          <em>strengthens</em> under a 2015-vintage OSM yardstick. <strong>Verdict: H3 —
+          heterogeneous, not a universal law.</strong>
+        </p>
+        <p>
+          <strong>Secondary + refutations.</strong> A pooled estimator ladder (OLS → LinearDML with
+          linear / 'auto' / Optuna-tuned nuisances) agrees rung-for-rung at a null ≈+0.01 — under
+          H3, opposite-signed regional effects cancel in any pooled average (DML self-localizes:
+          82% of its weight sits on the two null regions). Refutation batteries: hour-of-day
+          negative control PASS (p=.305) · E-values — Europe needs an unmeasured confounder with
+          RR ≥ 1.46 on both sides to lose significance, Latin America ≥ 2.18 · stated-vs-modal
+          home agreement 72% (κ=0.69) PASS · DoWhy battery 6/7 (the one fail is sign-preservation
+          on the pooled estimate, which is itself null — there is no sign to preserve).
+        </p>
+        <p style="color: var(--ink-mute); font-size: 13px; margin-top: 24px;">
+          Built with Observable Plot 0.6, MapLibre&nbsp;GL 4.7, Turf.js&nbsp;7, D3&nbsp;7 — all via
+          CDN, no build step. Data: <code>docs/data/aggregates.js</code>, generated by
+          <code>analysis/export_aggregates.py</code> from the DuckDB warehouse. Pipeline &amp;
+          pre-registration: <code>SPEC.md</code>, <code>analysis/</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ DECK NAV ============ -->
+<nav class="deck-nav" aria-label="Deck navigation">
+  <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Pause auto-advance" title="Pause auto-advance" aria-pressed="false">
+    <span class="ico-pause">❚❚</span><span class="ico-play">▶</span>
+  </button>
+  <button id="nav-prev" class="nav-arrow" type="button" aria-label="Previous slide">‹</button>
+  <ul id="deck-dots" class="deck-dots" role="tablist"></ul>
+  <button id="nav-next" class="nav-arrow" type="button" aria-label="Next slide">›</button>
+</nav>
+
+<div class="kbd-hint" aria-hidden="true">
+  <kbd>←</kbd><kbd>→</kbd> to navigate · <kbd>Space</kbd> to pause
+</div>
+
+<!-- Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6"></script>
+<script src="https://unpkg.com/@turf/turf@7/turf.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<!-- Data (generated) + app -->
+<script src="data/aggregates.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
