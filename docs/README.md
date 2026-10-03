@@ -34,7 +34,9 @@ python -m http.server 8912 --directory docs
 ```
 
 then open <http://localhost:8912>. (Also works on GitHub Pages — it's a static
-site; libraries load from CDN.)
+site with **zero external dependencies**: libraries are vendored in `vendor/`
+and the maps draw sea + the hand-simplified Japan outline locally, no tile
+server. It renders offline.)
 
 **Controls:** `←`/`→` or the dots to navigate, `Space` to pause auto-advance,
 swipe on mobile. The Season dropdown on slide 2 filters both maps live.
