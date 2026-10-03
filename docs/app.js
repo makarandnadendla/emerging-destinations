@@ -29,43 +29,26 @@
 
   const JAPAN_BBOX = [128.5, 30.5, 146.5, 45.8];
 
-  // ---------- rough Japan outlines (hand-simplified, for the map border) ----------
-  const JAPAN_OUTLINE = [
-    // Honshu
-    [[
-      [140.40, 41.55], [141.45, 41.40], [141.80, 40.40], [142.05, 39.50], [141.90, 38.30],
-      [141.10, 37.20], [140.85, 35.75], [140.05, 35.18], [139.85, 34.95], [138.95, 34.65],
-      [138.20, 34.55], [136.85, 34.40], [135.95, 33.55], [135.40, 33.95], [135.40, 34.65],
-      [134.20, 34.40], [132.40, 34.10], [130.95, 33.95], [131.20, 34.45], [132.60, 35.35],
-      [134.20, 35.55], [135.75, 35.70], [136.70, 36.65], [138.00, 37.40], [139.40, 38.90],
-      [139.85, 40.10], [140.10, 41.00], [140.40, 41.55]
-    ]],
-    // Hokkaido
-    [[
-      [140.00, 41.45], [141.10, 42.20], [142.10, 42.65], [143.30, 42.85], [144.40, 42.95],
-      [145.45, 43.40], [145.85, 44.10], [145.40, 44.55], [145.00, 44.30], [144.20, 44.10],
-      [143.85, 44.30], [144.30, 44.80], [143.50, 45.20], [142.55, 45.55], [141.65, 45.30],
-      [141.20, 44.90], [140.30, 43.30], [140.00, 42.55], [140.05, 41.85], [140.00, 41.45]
-    ]],
-    // Kyushu
-    [[
-      [130.90, 33.85], [131.30, 33.55], [131.65, 33.05], [131.85, 32.50], [131.75, 31.65],
-      [131.40, 31.20], [130.65, 31.05], [130.20, 31.40], [129.85, 32.10], [129.65, 32.85],
-      [129.85, 33.15], [130.10, 33.30], [130.40, 33.65], [130.90, 33.85]
-    ]],
-    // Shikoku
-    [[
-      [133.85, 34.50], [134.65, 34.30], [134.55, 33.55], [133.95, 33.00], [133.10, 32.85],
-      [132.50, 32.85], [132.55, 33.40], [132.70, 33.85], [133.70, 34.40], [133.85, 34.50]
-    ]]
-  ];
-
+  // ---------- Japan geometry: Natural Earth 10m (public domain) ----------
+  // data/japan_geo.js: real coastline (109 polygons) + 47 prefecture
+  // boundaries — vector, committed, crisp at every zoom. Replaces the
+  // original hand-simplified 4-polygon sketch.
   function japanFeature() {
-    // plain GeoJSON (JAPAN_OUTLINE is already MultiPolygon coordinates) —
-    // this was the deck's only Turf call, so Turf is no longer loaded
-    return { type: 'Feature', properties: {},
-             geometry: { type: 'MultiPolygon', coordinates: JAPAN_OUTLINE } };
+    return { type: 'Feature', properties: {}, geometry: JAPAN_GEO.land };
   }
+
+  // city labels for orientation (HTML markers — no glyph/font dependencies)
+  const CITIES = [
+    { name: 'Tokyo',     lat: 35.68, lon: 139.69 },
+    { name: 'Osaka',     lat: 34.69, lon: 135.50 },
+    { name: 'Kyoto',     lat: 35.01, lon: 135.77 },
+    { name: 'Nagoya',    lat: 35.18, lon: 136.91 },
+    { name: 'Sapporo',   lat: 43.06, lon: 141.35 },
+    { name: 'Sendai',    lat: 38.27, lon: 140.87 },
+    { name: 'Kanazawa',  lat: 36.57, lon: 136.66 },
+    { name: 'Hiroshima', lat: 34.39, lon: 132.46 },
+    { name: 'Fukuoka',   lat: 33.59, lon: 130.40 }
+  ];
 
   // ---------- real cell data ----------
   // REAL.cells rows: [lat, lon, remoteness, LH W/Sp/Su/A, RG W/Sp/Su/A]
@@ -111,13 +94,19 @@
     return {
       version: 8,
       sources: {
-        'japan-land': { type: 'geojson', data: japanFeature() }
+        'japan-land': { type: 'geojson', data: japanFeature() },
+        'japan-prefs': { type: 'geojson', data: JAPAN_GEO.prefectures }
       },
       layers: [
         { id: 'sea', type: 'background',
           paint: { 'background-color': '#E7ECF0' } },
         { id: 'land', type: 'fill', source: 'japan-land',
-          paint: { 'fill-color': '#FBFAF5' } }
+          paint: { 'fill-color': '#FBFAF5' } },
+        { id: 'pref-lines', type: 'line', source: 'japan-prefs',
+          paint: { 'line-color': '#C9C4B8', 'line-width': 0.6,
+                   'line-opacity': 0.8 } },
+        { id: 'coast', type: 'line', source: 'japan-land',
+          paint: { 'line-color': '#9AA4AC', 'line-width': 0.8 } }
       ]
     };
   }
@@ -182,9 +171,6 @@
       // ---- heatmap source: real visited cells weighted by t ----
       map.addSource('cell-points', { type: 'geojson', data: points });
 
-      // ---- country outline source ----
-      map.addSource('country-outline', { type: 'geojson', data: japanFeature() });
-
       // ---- heatmap layer ----
       map.addLayer({
         id: 'cell-heat',
@@ -217,17 +203,25 @@
         }
       });
 
-      // ---- country outline on top of heatmap ----
+      // ---- coastline restated on top of the heatmap ----
       map.addLayer({
         id: 'country-line',
         type: 'line',
-        source: 'country-outline',
+        source: 'japan-land',
         paint: {
           'line-color': '#1A1A1A',
-          'line-width': 1.0,
-          'line-opacity': 0.5
+          'line-width': 0.7,
+          'line-opacity': 0.35
         }
       });
+
+      // ---- city labels (HTML markers; pointer-events disabled in CSS) ----
+      for (const c of CITIES) {
+        const el = document.createElement('div');
+        el.className = 'map-city';
+        el.textContent = c.name;
+        new maplibregl.Marker({ element: el }).setLngLat([c.lon, c.lat]).addTo(map);
+      }
 
       // ---- invisible circle layer for hover hit-testing ----
       map.addLayer({
