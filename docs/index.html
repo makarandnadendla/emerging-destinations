@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Off the Golden Route — Emerging Destinations / Japan</title>
+  <meta name="description" content="Does origin-country development predict who leaves Japan's Golden Route? Real Flickr data, 2012–2019: the answer is heterogeneous — the HDI slope is positive within Europe, negative within Latin America, null in East and Southeast Asia.">
+
+  <!-- MapLibre CSS (vendored — no CDN) -->
+  <link href="vendor/maplibre-gl-4.7.1.css" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="progress" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>
+
+<main id="deck" class="deck" role="region" aria-label="Slide deck">
+
+  <!-- ============ SLIDE 1: HERO ============ -->
+  <section class="slide slide-hero" aria-label="Slide 1: title">
+    <div class="slide-inner">
+      <div class="hero-inner">
+        <div class="kicker">PORTFOLIO PROJECT · REAL FLICKR DATA · JAPAN 2012–2019</div>
+        <h1>Off the Golden&nbsp;Route</h1>
+        <p class="lede">
+          Almost every foreign visitor in Japan funnels through the same 600&nbsp;km corridor:
+          <strong>Tokyo&nbsp;→ Hakone&nbsp;→ Fuji&nbsp;→ Kyoto&nbsp;→ Nara&nbsp;→ Osaka&nbsp;→ Hiroshima</strong>.
+          Do people from wealthier countries go off the beaten path more often to explore other gems in Japan?
+          The data's answer is <strong>region dependent</strong>: for example, within Europe, more-developed origins
+          venture <em>further</em> off-path; within Latin America more developed nations tend to stick closer to the Golden Route!
+        </p>
+        <div class="meta">
+          <span><span class="dot dot-longhaul"></span>Long-haul (Europe / Americas / Oceania / MEA / S&thinsp;Asia)</span>
+          <span><span class="dot dot-regional"></span>Regional (E&thinsp;Asia / SE&thinsp;Asia)</span>
+          <span class="meta-sep">·</span>
+          <span id="trip-count">— travelers</span>
+          <span class="meta-sep">·</span>
+          <span>H3&nbsp;r6 hexes · ~36&nbsp;km²</span>
+        </div>
+        <button class="hero-cta" id="hero-cta" type="button" aria-label="Start the deck">
+          <span class="cta-shine" aria-hidden="true"></span>
+          <span class="cta-text">Follow the story</span>
+          <span class="cta-kbd" aria-hidden="true">→</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 2: THE HYPOTHESES (Act I) ============ -->
+  <section class="slide" aria-label="Slide 2: the competing hypotheses">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">2 / 8 · ACT I — THE HYPOTHESES</div>
+        <h2>Three rival theories, one null — called in advance</h2>
+        <p class="slide-sub">
+          The whole design was fixed <em>before</em> unblinding: outcome, eligibility gate,
+          adjustment set and refutation battery pre-registered in <code>SPEC.md</code>.
+          The estimate was looked at once, at the end.
+        </p>
+      </div>
+
+      <div class="hypo-grid">
+        <div class="hypo-card">
+          <div class="caption-label">H1 · Acclimation</div>
+          <svg class="hypo-sketch" viewBox="0 0 150 84" aria-hidden="true">
+            <line x1="14" y1="68" x2="144" y2="68" stroke="#E5E3DC" stroke-width="1.5"/>
+            <line x1="14" y1="68" x2="14" y2="8" stroke="#E5E3DC" stroke-width="1.5"/>
+            <text x="18" y="12" font-size="8.5" fill="#7A7A7A">↑ off-path</text>
+            <text x="144" y="80" text-anchor="end" font-size="8.5" fill="#7A7A7A">origin HDI →</text>
+            <path d="M 20 22 L 138 58" stroke="#0072B2" stroke-width="3" stroke-linecap="round" fill="none"/>
+          </svg>
+          <p>Development buys comfort: the wealthier the origin, the tighter its
+          travelers hug the Golden Route.</p>
+          <div class="hypo-pred">predicts a negative HDI slope</div>
+        </div>
+
+        <div class="hypo-card">
+          <div class="caption-label">H2 · Status-good</div>
+          <svg class="hypo-sketch" viewBox="0 0 150 84" aria-hidden="true">
+            <line x1="14" y1="68" x2="144" y2="68" stroke="#E5E3DC" stroke-width="1.5"/>
+            <line x1="14" y1="68" x2="14" y2="8" stroke="#E5E3DC" stroke-width="1.5"/>
+            <text x="18" y="12" font-size="8.5" fill="#7A7A7A">↑ off-path</text>
+            <text x="144" y="80" text-anchor="end" font-size="8.5" fill="#7A7A7A">origin HDI →</text>
+            <path d="M 20 58 L 138 22" stroke="#0072B2" stroke-width="3" stroke-linecap="round" fill="none"/>
+          </svg>
+          <p>Development buys adventure: going off the beaten path is the status
+          good that wealth reaches for.</p>
+          <div class="hypo-pred">predicts a positive HDI slope</div>
+        </div>
+
+        <div class="hypo-card">
+          <div class="caption-label">H3 · Heterogeneous</div>
+          <svg class="hypo-sketch" viewBox="0 0 150 84" aria-hidden="true">
+            <line x1="14" y1="68" x2="144" y2="68" stroke="#E5E3DC" stroke-width="1.5"/>
+            <line x1="14" y1="68" x2="14" y2="8" stroke="#E5E3DC" stroke-width="1.5"/>
+            <text x="18" y="12" font-size="8.5" fill="#7A7A7A">↑ off-path</text>
+            <text x="144" y="80" text-anchor="end" font-size="8.5" fill="#7A7A7A">origin HDI →</text>
+            <path d="M 20 50 L 138 16" stroke="#0072B2" stroke-width="3" stroke-linecap="round" fill="none"/>
+            <path d="M 20 28 L 138 60" stroke="#E69F00" stroke-width="3" stroke-linecap="round" fill="none"/>
+          </svg>
+          <p>Both are real — in different places. The sign of the development
+          effect depends on the origin region.</p>
+          <div class="hypo-pred">predicts opposite slopes by region</div>
+        </div>
+
+        <div class="hypo-card">
+          <div class="caption-label">H4 · Null</div>
+          <svg class="hypo-sketch" viewBox="0 0 150 84" aria-hidden="true">
+            <line x1="14" y1="68" x2="144" y2="68" stroke="#E5E3DC" stroke-width="1.5"/>
+            <line x1="14" y1="68" x2="14" y2="8" stroke="#E5E3DC" stroke-width="1.5"/>
+            <text x="18" y="12" font-size="8.5" fill="#7A7A7A">↑ off-path</text>
+            <text x="144" y="80" text-anchor="end" font-size="8.5" fill="#7A7A7A">origin HDI →</text>
+            <path d="M 20 40 L 138 40" stroke="#8A8A8A" stroke-width="2.5" stroke-dasharray="5 5" stroke-linecap="round" fill="none"/>
+          </svg>
+          <p>Neither: once travelers are compared like-with-like, development
+          predicts nothing about going off-path.</p>
+          <div class="hypo-pred">predicts a flat slope</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 3: TWIN MAPS (Act II, full-bleed) ============ -->
+  <section class="slide slide-maps" aria-label="Slide 3: photo-density map of Japan with origin-region picker">
+    <div class="maps-toolbar">
+      <div class="toolbar-left">
+        <span class="slide-num inline">3 / 8 · ACT II — EXPLORE</span>
+        <h2 class="toolbar-title">Where they actually photograph in Japan</h2>
+      </div>
+      <div class="toolbar-right">
+        <label for="season-filter" class="control-label">Season:</label>
+        <select id="season-filter" aria-label="Filter both maps by travel season">
+          <option value="all">All seasons</option>
+          <option value="Spring">Spring · sakura (Mar–May)</option>
+          <option value="Summer">Summer · matsuri (Jun–Aug)</option>
+          <option value="Autumn">Autumn · kōyō (Sep–Nov)</option>
+          <option value="Winter">Winter · ski / onsen (Dec–Feb)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="maps-fullbleed">
+      <div class="map-panel">
+        <div id="map-main" class="map" role="img" aria-label="Japan map: photo density of the selected origin regions"></div>
+        <div class="map-overlay map-overlay-tl">
+          <div class="overlay-label" id="label-main"><span class="dot" style="background:#1A1A1A"></span>Pooled — all travelers</div>
+          <div class="overlay-picks" id="picks-main" role="group" aria-label="Choose which travelers this map shows"></div>
+          <p class="overlay-takeaway" id="take-main">
+            <span class="sent lead">One corridor, two Japans.</span>
+            <span class="sent">Everyone together: mass piles onto Tokyo–Kyoto–Osaka with the
+            Hiroshima–Miyajima extension — while Hokkaido's ski country and Kyushu's
+            short-haul gateways glow from the regional flows. Tick a region chip to see
+            who drives which pattern.</span>
+          </p>
+          <div class="overlay-stat" id="stat-main">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="maps-legend">
+      <span>Photo density (real):</span>
+      <span style="color: var(--ink-mute);">low</span>
+      <span class="legend-bar" aria-hidden="true"></span>
+      <span style="color: var(--ink-mute);">high</span>
+      <span style="margin-left:auto; font-size:11px; color: var(--ink-mute);">geotagged Flickr photos per H3 r6 cell · log-scaled · tick the chips to swap or combine origin regions</span>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 4: REGION MEANS (Act II) ============ -->
+  <section class="slide" aria-label="Slide 4: mean remoteness by origin region">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">4 / 8 · ACT II — EXPLORE</div>
+        <h2>Mean off-path-ness by origin region — and a trap</h2>
+      </div>
+
+      <div class="caption big" style="margin-bottom: 16px;">
+        <p>
+          <span class="sent lead">No tidy long-haul vs regional split — the levels refuse the cliché.</span>
+          <span class="sent">East-Asian travelers post the <em>highest</em> mean first-trip remoteness
+          of any large region (ski Hokkaido, Kyushu), Europeans and North Americans sit mid-pack,
+          Latin America lowest. Tempting to read development straight off these bars — but each bar
+          also bundles proximity, season mix and trip style, and each region draws from a completely
+          different HDI range. Differences mixed together like that have a name:
+          <strong>confounding</strong>. Before the question can be answered, it has to be dealt
+          with&nbsp;→</span>
+        </p>
+      </div>
+
+      <div class="chart-stretch">
+        <div id="hetero-chart" class="chart" aria-label="Bar chart of mean first-trip remoteness by origin region"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 5: THE CAUSAL MAP / DAG (Act III) ============ -->
+  <section class="slide" aria-label="Slide 5: the causal diagram and why region and year are adjusted">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">5 / 8 · ACT III — IDENTIFY</div>
+        <h2>Before the answer: the causal map</h2>
+      </div>
+
+      <div class="dag-grid">
+        <div class="dag-copy">
+          <div class="caption big">
+            <p>
+              <span class="sent lead">Compare like with like.</span>
+              <span class="sent">Origin region sits on both sides of the question: it sets the HDI
+              pool <em>and</em> the way Japan is traveled (proximity, ski weekends, visa regimes).
+              Trip year does the same — the inbound boom and HDI drift moved together. Left alone,
+              those two back-doors would masquerade as a development effect.</span>
+            </p>
+          </div>
+          <div class="caption" style="margin-top: 14px;">
+            <p>
+              <span class="sent">So the estimate compares travelers <strong>within the same region
+              and year</strong> — exactly the adjustment set DoWhy identifies from the full graph.
+              Budget, trip style, length and self-drive are deliberately <em>not</em> adjusted:
+              they are the channels development acts <em>through</em>, and the target is the
+              total effect.</span>
+              <span class="sent dag-footnote">Formal version: the 14-node DAG and the identified
+              backdoor estimand live in <code>analysis/assumptions_dag.py</code> — plus a
+              pre-stated gate that only grants causal readings where HDI actually varies
+              within a region.</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="dag-card">
+          <svg viewBox="0 0 680 430" role="img" aria-label="Simplified causal diagram: origin region and trip year confound both HDI and within-Japan remoteness and are adjusted away; budget, style, length and self-drive mediate the effect and are left open; the HDI-to-remoteness arrow is the effect of interest">
+            <defs>
+              <marker id="dag-arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#C0392B"/>
+              </marker>
+              <marker id="dag-arr-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#0072B2"/>
+              </marker>
+              <marker id="dag-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#B97E00"/>
+              </marker>
+            </defs>
+
+            <!-- back-door edges (red, closed by adjustment) -->
+            <line x1="150" y1="97" x2="128" y2="214" stroke="#C0392B" stroke-width="2" marker-end="url(#dag-arr-red)"/>
+            <line x1="245" y1="97" x2="496" y2="214" stroke="#C0392B" stroke-width="2" marker-end="url(#dag-arr-red)"/>
+            <line x1="440" y1="97" x2="199" y2="214" stroke="#C0392B" stroke-width="2" marker-end="url(#dag-arr-red)"/>
+            <line x1="540" y1="97" x2="556" y2="214" stroke="#C0392B" stroke-width="2" marker-end="url(#dag-arr-red)"/>
+
+            <!-- effect of interest (blue, thick) -->
+            <line x1="212" y1="250" x2="460" y2="250" stroke="#0072B2" stroke-width="4" marker-end="url(#dag-arr-blue)"/>
+            <text x="336" y="236" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0072B2">effect of interest</text>
+
+            <!-- mediator path (amber, left open) -->
+            <line x1="148" y1="282" x2="268" y2="346" stroke="#B97E00" stroke-width="2" marker-end="url(#dag-arr-amber)"/>
+            <line x1="418" y1="346" x2="538" y2="284" stroke="#B97E00" stroke-width="2" marker-end="url(#dag-arr-amber)"/>
+
+            <!-- "blocked" badges on the back-door edges -->
+            <g font-size="11" font-weight="700" text-anchor="middle">
+              <circle cx="139" cy="156" r="8" fill="#FFFFFF" stroke="#C0392B" stroke-width="1.5"/>
+              <text x="139" y="160" fill="#C0392B">✕</text>
+              <circle cx="420" cy="180" r="8" fill="#FFFFFF" stroke="#C0392B" stroke-width="1.5"/>
+              <text x="420" y="184" fill="#C0392B">✕</text>
+              <circle cx="367" cy="132" r="8" fill="#FFFFFF" stroke="#C0392B" stroke-width="1.5"/>
+              <text x="367" y="136" fill="#C0392B">✕</text>
+              <circle cx="549" cy="156" r="8" fill="#FFFFFF" stroke="#C0392B" stroke-width="1.5"/>
+              <text x="549" y="160" fill="#C0392B">✕</text>
+            </g>
+
+            <!-- nodes -->
+            <rect x="60" y="33" width="210" height="64" rx="10" fill="#FBF1EF" stroke="#C0392B" stroke-width="1.8"/>
+            <text x="165" y="60" text-anchor="middle" font-size="13.5" font-weight="700" fill="#1A1A1A">Origin region</text>
+            <text x="165" y="78" text-anchor="middle" font-size="11" fill="#7A7A7A">proximity · culture · trip norms</text>
+
+            <rect x="415" y="33" width="200" height="64" rx="10" fill="#FBF1EF" stroke="#C0392B" stroke-width="1.8"/>
+            <text x="515" y="60" text-anchor="middle" font-size="13.5" font-weight="700" fill="#1A1A1A">Trip year</text>
+            <text x="515" y="78" text-anchor="middle" font-size="11" fill="#7A7A7A">tourism boom · HDI drift</text>
+
+            <rect x="30" y="218" width="182" height="64" rx="10" fill="#EFF6FB" stroke="#0072B2" stroke-width="1.8"/>
+            <text x="121" y="245" text-anchor="middle" font-size="13.5" font-weight="700" fill="#1A1A1A">Origin development</text>
+            <text x="121" y="263" text-anchor="middle" font-size="11" fill="#7A7A7A">HDI — the treatment</text>
+
+            <rect x="464" y="218" width="192" height="64" rx="10" fill="#1A1A1A" stroke="#1A1A1A" stroke-width="1.8"/>
+            <text x="560" y="245" text-anchor="middle" font-size="13.5" font-weight="700" fill="#FFFFFF">Within-Japan remoteness</text>
+            <text x="560" y="263" text-anchor="middle" font-size="11" fill="#CFCFCF">photo-weighted — the outcome</text>
+
+            <rect x="210" y="347" width="262" height="56" rx="10" fill="#FDF7EA" stroke="#B97E00" stroke-width="1.8"/>
+            <text x="341" y="370" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1A1A1A">Budget · style · length · self-drive</text>
+            <text x="341" y="388" text-anchor="middle" font-size="11" fill="#7A7A7A">mediators — deliberately left open</text>
+          </svg>
+
+          <div class="dag-legend">
+            <span><i style="background:#0072B2"></i>effect of interest — what gets estimated</span>
+            <span><i style="background:#C0392B"></i>back-door — closed by adjusting region + year (✕)</span>
+            <span><i style="background:#B97E00"></i>mediation — left open: total effect</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 6: WITHIN-REGION SLOPES (Act III) ============ -->
+  <section class="slide" aria-label="Slide 6: HDI vs remoteness, within regions — the adjusted answer">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">6 / 8 · ACT III — ESTIMATE</div>
+        <h2>The adjusted answer — HDI slopes within region</h2>
+        <p class="slide-sub">
+          Back-doors blocked (region + year) · slopes per +0.10 HDI · origin-clustered SEs ·
+          leave-one-origin-out. Verdict: <strong>H3</strong> — both rival theories win, each in
+          its own region.
+        </p>
+      </div>
+
+      <div class="captions captions-2col big">
+        <div class="caption caption-longhaul">
+          <div class="caption-label"><span class="dot dot-longhaul"></span>Europe · status-good (H2) wins here</div>
+          <p>
+            <span class="sent lead">+0.054 per +0.10 HDI (p=.005).</span>
+            <span class="sent">Across 27 European origins, higher development pushes first trips
+            further off the corridor. Sign-stable under leave-one-origin-out.</span>
+          </p>
+        </div>
+        <div class="caption caption-regional">
+          <div class="caption-label"><span class="dot dot-regional"></span>Latin America · acclimation (H1) wins here</div>
+          <p>
+            <span class="sent lead">−0.104 per +0.10 HDI (p=.002).</span>
+            <span class="sent">Across 11 Latin-American origins the sign flips: higher development
+            keeps first trips closer to the beaten path. Also LOO sign-stable.
+            East &amp; Southeast Asia: no credible effect (East Asia rests on a two-point contrast).</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="chart-stretch">
+        <div id="scatter-chart" class="chart" aria-label="Origin-level scatter of HDI vs first-trip remoteness, faceted by in-scope region, with the estimated within-region slopes"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 7: THE POOLED EFFECT (Act III) ============ -->
+  <section class="slide" aria-label="Slide 7: the pooled effect — what one regression for everyone concludes">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">7 / 8 · ACT III — POOL IT</div>
+        <h2>Run one regression instead — and the effect vanishes</h2>
+        <p class="slide-sub">
+          Same data, same region + year adjustment as the previous slide; the only change is
+          forcing a <strong>single HDI slope on everyone</strong>. Shown: the full pooled ladder —
+          OLS, then debiased ML (LinearDML) with three nuisance choices, rung 3 pre-registered.
+        </p>
+      </div>
+
+      <div class="caption big" style="margin-bottom: 14px;">
+        <p>
+          <span class="sent lead">Opposite truths average to nothing.</span>
+          <span class="sent">Europe's +0.054 and Latin America's −0.104 enter the pooled slope
+          with opposite signs, so the one-number answer is a confident-looking ≈&nbsp;0 — read
+          alone, it would call this study "H4, development doesn't matter" and be wrong twice.
+          And it is not an estimator problem: plain OLS and all three debiased-ML rungs agree to
+          the third decimal. Pooling, not estimation, is what erases the story.</span>
+        </p>
+      </div>
+
+      <div class="chart-stretch forest-stack">
+        <div>
+          <div class="caption-label">One slope per region — the H3 answer (previous slide)</div>
+          <div id="forest-within" class="chart" aria-label="Forest plot: within-region HDI slopes with 95% confidence intervals"></div>
+        </div>
+        <div>
+          <div class="caption-label">One pooled slope — the estimator ladder, all four rungs</div>
+          <div id="forest-pooled" class="chart" aria-label="Forest plot: pooled ladder estimates with 95% confidence intervals, all crossing zero"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 8: METHODS / RESULTS ============ -->
+  <section class="slide" aria-label="Slide 8: methods and results">
+    <div class="slide-inner">
+      <div class="slide-head">
+        <div class="slide-num">8 / 8 · APPENDIX</div>
+        <h2>Methods &amp; results</h2>
+      </div>
+
+      <div class="methods-body">
+        <p>
+          <strong>Real data.</strong> 2,801 cohort travelers · 278k geotagged Flickr photos inside
+          Japan (2012–2019) · 39 origin countries shown (n≥5 suppression floor; everything on this
+          page is aggregated — no user-level rows). Remoteness = inverse OSM POI density
+          (−ln(1+POI), min-max normalized) on an H3 r6 grid; outcome = photo-weighted mean cell
+          remoteness of the <em>first</em> trip (a controlled direct effect at trip #1, immune to
+          repeat-trip selection).
+        </p>
+        <p>
+          <strong>Identification.</strong> Backdoor adjustment set = origin region + trip year
+          (DoWhy-identified estimand; mediators left open for the total effect). A pre-stated gate
+          restricts causal estimation to regions where HDI actually varies within region
+          (sd ≥ 0.02, n ≥ 50): Europe, East Asia, Southeast Asia, Latin America. North America and
+          Oceania are descriptive-only — their origin pools have structurally constant HDI.
+        </p>
+        <p>
+          <strong>Headline (per +0.10 HDI, origin-clustered SEs, leave-one-origin-out).</strong>
+          Europe <strong>+0.054</strong> [+0.018, +0.090], p=.005, sign-stable ·
+          Latin America <strong>−0.104</strong> [−0.158, −0.050], p=.002, sign-stable ·
+          East Asia +0.013 (p=.38; two-point contrast, uninformative) ·
+          Southeast Asia −0.002 (p=.81; precise null). Robust to dropping stated-vs-modal home
+          conflicts, to the pooled all-trips outcome, to trip-gap rules 14/30/60 days, and it
+          <em>strengthens</em> under a 2015-vintage OSM yardstick. <strong>Verdict: H3 —
+          heterogeneous, not a universal law.</strong>
+        </p>
+        <p>
+          <strong>Secondary + refutations.</strong> A pooled estimator ladder (OLS → LinearDML with
+          linear / 'auto' / Optuna-tuned nuisances) agrees rung-for-rung at a null ≈+0.01 — under
+          H3, opposite-signed regional effects cancel in any pooled average (DML self-localizes:
+          82% of its weight sits on the two null regions). Refutation batteries: hour-of-day
+          negative control PASS (p=.305) · E-values — Europe needs an unmeasured confounder with
+          RR ≥ 1.46 on both sides to lose significance, Latin America ≥ 2.18 · stated-vs-modal
+          home agreement 72% (κ=0.69) PASS · DoWhy battery 6/7 (the one fail is sign-preservation
+          on the pooled estimate, which is itself null — there is no sign to preserve).
+        </p>
+        <p style="color: var(--ink-mute); font-size: 13px; margin-top: 24px;">
+          Built with Observable Plot 0.6, MapLibre&nbsp;GL 4.7, D3&nbsp;7 — vendored locally; no
+          CDN, no tile server, no build step (renders offline, forever). Data:
+          <code>docs/data/aggregates.js</code>, generated by
+          <code>analysis/export_aggregates.py</code> from the DuckDB warehouse. Pipeline &amp;
+          pre-registration: <code>SPEC.md</code>, <code>analysis/</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ DECK NAV ============ -->
+<nav class="deck-nav" aria-label="Deck navigation">
+  <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Pause auto-advance" title="Pause auto-advance" aria-pressed="false">
+    <span class="ico-pause">❚❚</span><span class="ico-play">▶</span>
+  </button>
+  <button id="nav-prev" class="nav-arrow" type="button" aria-label="Previous slide">‹</button>
+  <ul id="deck-dots" class="deck-dots" role="tablist"></ul>
+  <button id="nav-next" class="nav-arrow" type="button" aria-label="Next slide">›</button>
+</nav>
+
+<div class="kbd-hint" aria-hidden="true">
+  <kbd>←</kbd><kbd>→</kbd> to navigate · <kbd>Space</kbd> to pause
+</div>
+
+<!-- Libraries (vendored, pinned — the deck renders with zero external dependencies) -->
+<script src="vendor/d3-7.min.js"></script>
+<script src="vendor/plot-0.6.umd.min.js"></script>
+<script src="vendor/maplibre-gl-4.7.1.js"></script>
+
+<!-- Data (generated) + app -->
+<script src="data/japan_geo.js"></script>
+<script src="data/aggregates.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

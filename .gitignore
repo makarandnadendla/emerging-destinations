@@ -3,8 +3,9 @@
 *.env
 !.env.example
 
-# Data + warehouse (raw user data must not be committed)
-data/
+# Data + warehouse (raw user data must not be committed).
+# Root-anchored: docs/data/ holds only generated AGGREGATES and is committed.
+/data/
 *.duckdb
 *.duckdb.wal
 *.parquet
@@ -29,3 +30,6 @@ Thumbs.db
 
 # Mocked-data design predecessor; do not publish
 prototype/
+
+# One-off probes and recovery scripts (kept locally, never committed)
+scratch/

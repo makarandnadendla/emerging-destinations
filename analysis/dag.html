@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Emerging Destinations &mdash; Causal DAG</title>
+<style>
+  body{margin:0;background:#0b0f1a;color:#e7ecf5;
+       font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:24px 28px 6px} h1{margin:0 0 6px;font-size:22px}
+  .sub{color:#9aa6bd;max-width:78ch}
+  .wrap{padding:6px 22px 44px}
+  .card{background:#121829;border:1px solid #1e2740;border-radius:14px;padding:16px;margin-top:16px;overflow:auto}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:12px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;color:#9aa6bd;font-size:13px}
+  .legend i{width:13px;height:13px;border-radius:3px;display:inline-block}
+  h2{font-size:15px;margin:0 0 8px}
+  code{background:#1a2238;border:1px solid #26314e;border-radius:5px;padding:1px 6px;font-size:13px}
+  ul{margin:6px 0 0;padding-left:20px} li{margin:5px 0} .tag{font-weight:600}
+</style></head>
+<body>
+<header>
+  <h1>Causal DAG &mdash; origin development &rarr; within-Japan remoteness</h1>
+  <p class="sub">Estimand: the effect of an inbound traveler's <b>origin-country development</b>
+  (HDI; with GDP&thinsp;pc&thinsp;PPP, LPI, UHC, WGI as alternative operationalizations) on
+  <b>how off-the-beaten-path they go inside Japan</b> (photo-weighted mean cell remoteness,
+  remoteness = inverse OSM POI density). Thick blue arrow = effect of interest.</p>
+</header>
+<div class="wrap">
+  <div class="card">
+    <svg viewBox="0 0 1240 900" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif">
+<defs>
+<marker id="arr-eff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6"/></marker>
+<marker id="arr-conf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/></marker>
+<marker id="arr-med" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b"/></marker>
+<marker id="arr-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa"/></marker>
+<marker id="arr-meas" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/></marker>
+<marker id="arr-neg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/></marker>
+</defs>
+<text x="690" y="416" text-anchor="middle" font-size="12" fill="#93c5fd" style="paint-order:stroke;stroke:#0b0f1a;stroke-width:3px">effect of interest</text>
+<line x1="401.0" y1="430.0" x2="994.0" y2="430.0" stroke="#3b82f6" stroke-width="4.0" marker-end="url(#arr-eff)"/>
+<line x1="230.1" y1="156.0" x2="309.2" y2="397.0" stroke="#ef4444" stroke-width="2.0" marker-end="url(#arr-conf)"/>
+<line x1="189.3" y1="283.0" x2="290.7" y2="397.0" stroke="#ef4444" stroke-width="2.0" marker-end="url(#arr-conf)"/>
+<path d="M 215.0 64.0 L 215.0 34.0 L 1060.0 34.0 L 1060.0 394.0" fill="none" stroke="#ef4444" stroke-width="2.0" stroke-linejoin="round" marker-end="url(#arr-conf)"/>
+<path d="M 245.0 250.0 L 350.0 250.0 L 350.0 66.0 L 1085.0 66.0 L 1085.0 394.0" fill="none" stroke="#ef4444" stroke-width="2.0" stroke-linejoin="round" marker-end="url(#arr-conf)"/>
+<path d="M 320.0 110.0 L 460.0 110.0 L 460.0 748.0 L 438.0 748.0" fill="none" stroke="#ef4444" stroke-width="2.0" stroke-linejoin="round" marker-end="url(#arr-conf)"/>
+<line x1="401.0" y1="448.9" x2="534.0" y2="479.9" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<path d="M 366.4 463.0 Q 486 548 534.0 556.6" fill="none" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<path d="M 348.8 463.0 Q 486 620 534.0 628.6" fill="none" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<path d="M 337.9 463.0 Q 470 706 534.0 710.3" fill="none" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<line x1="706.0" y1="487.2" x2="994.0" y2="444.3" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<line x1="706.0" y1="546.0" x2="994.0" y2="459.0" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<line x1="677.1" y1="618.0" x2="1008.7" y2="467.0" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<path d="M 706.0 716.0 Q 800 716 1052.5 467.0" fill="none" stroke="#f59e0b" stroke-width="2.0" marker-end="url(#arr-med)"/>
+<line x1="320.0" y1="463.0" x2="320.0" y2="571.0" stroke="#a78bfa" stroke-width="2.0" marker-end="url(#arr-sel)"/>
+<line x1="320.0" y1="629.0" x2="320.0" y2="714.0" stroke="#a78bfa" stroke-width="2.0" marker-end="url(#arr-sel)"/>
+<line x1="650.0" y1="275.0" x2="725.0" y2="275.0" stroke="#94a3b8" stroke-width="2.0" marker-end="url(#arr-meas)"/>
+<line x1="880.3" y1="304.0" x2="1028.4" y2="393.0" stroke="#94a3b8" stroke-width="2.0" marker-end="url(#arr-meas)"/>
+<line x1="195.0" y1="430.0" x2="239.0" y2="430.0" stroke="#94a3b8" stroke-width="2.0" stroke-dasharray="6 5" marker-end="url(#arr-meas)"/>
+<text x="218" y="416" text-anchor="middle" font-size="11.5" fill="#cbd5e1" font-family="Segoe UI, system-ui, sans-serif" style="paint-order:stroke;stroke:#0b0f1a;stroke-width:3px;stroke-linejoin:round">meas. error</text>
+<path d="M 400.0 456.0 L 512.0 456.0 L 512.0 846.0 L 1090.0 846.0 L 1090.0 705.0" fill="none" stroke="#22d3ee" stroke-width="2.0" stroke-dasharray="6 5" stroke-linejoin="round" marker-end="url(#arr-neg)"/>
+<text x="720" y="862" text-anchor="middle" font-size="11.5" fill="#cbd5e1" font-family="Segoe UI, system-ui, sans-serif" style="paint-order:stroke;stroke:#0b0f1a;stroke-width:3px;stroke-linejoin:round">expect ≈ 0</text>
+<rect x="109" y="64" width="212" height="92" rx="11" ry="11" fill="#dc2626" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="215" y="99" font-weight="700">Origin region /</tspan><tspan x="215" dy="16" font-weight="500">proximity & culture</tspan><tspan x="215" dy="16" font-weight="500">(confounder + H3 modifier)</tspan></text>
+<rect x="74" y="217" width="172" height="66" rx="11" ry="11" fill="#dc2626" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="160" y="239" font-weight="700">Trip year</tspan><tspan x="160" dy="16" font-weight="500">(boom, new transport,</tspan><tspan x="160" dy="16" font-weight="500">HDI drift)</tspan></text>
+<rect x="25" y="398" width="170" height="64" rx="11" ry="11" fill="#6b7280" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="110" y="419" font-weight="700">Home-country</tspan><tspan x="110" dy="16" font-weight="500">resolution</tspan><tspan x="110" dy="16" font-weight="500">(stated vs modal)</tspan></text>
+<rect x="239" y="397" width="162" height="66" rx="11" ry="11" fill="#2563eb" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="320" y="419" font-weight="700">Origin development</tspan><tspan x="320" dy="16" font-weight="500">(HDI; alt GDPpc,</tspan><tspan x="320" dy="16" font-weight="500">LPI, UHC, WGI)</tspan></text>
+<rect x="470" y="246" width="180" height="58" rx="11" ry="11" fill="#6b7280" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="560" y="272" font-weight="700">OSM mapping</tspan><tspan x="560" dy="16" font-weight="500">completeness</tspan></text>
+<rect x="725" y="246" width="214" height="58" rx="11" ry="11" fill="#6b7280" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="832" y="272" font-weight="700">OSM POI density</tspan><tspan x="832" dy="16" font-weight="500">(remoteness yardstick)</tspan></text>
+<rect x="534" y="474" width="172" height="52" rx="11" ry="11" fill="#d97706" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="620" y="497" font-weight="700">Trip budget /</tspan><tspan x="620" dy="16" font-weight="500">spending power</tspan></text>
+<rect x="534" y="546" width="172" height="52" rx="11" ry="11" fill="#d97706" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="620" y="569" font-weight="700">Independent vs</tspan><tspan x="620" dy="16" font-weight="500">package travel</tspan></text>
+<rect x="534" y="618" width="172" height="52" rx="11" ry="11" fill="#d97706" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="620" y="641" font-weight="700">Trip length /</tspan><tspan x="620" dy="16" font-weight="500">duration</tspan></text>
+<rect x="534" y="690" width="172" height="52" rx="11" ry="11" fill="#d97706" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="620" y="713" font-weight="700">Self-drive /</tspan><tspan x="620" dy="16" font-weight="500">rental-car mobility</tspan></text>
+<rect x="231" y="571" width="178" height="58" rx="11" ry="11" fill="#7c3aed" stroke="#0b0f1a" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="320" y="597" font-weight="700">Flickr & geotag</tspan><tspan x="320" dy="16" font-weight="500">adoption</tspan></text>
+<rect x="201" y="714" width="238" height="68" rx="11" ry="11" fill="#7c3aed" stroke="#0b0f1a" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="320" y="737" font-weight="700">IN SAMPLE: traveled</tspan><tspan x="320" dy="16" font-weight="500">& geotagged Japan</tspan><tspan x="320" dy="16" font-weight="500">[conditioned]</tspan></text>
+<rect x="986" y="639" width="208" height="66" rx="11" ry="11" fill="#0891b2" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="1090" y="661" font-weight="700">Hour-of-day</tspan><tspan x="1090" dy="16" font-weight="500">(negative-control</tspan><tspan x="1090" dy="16" font-weight="500">outcome)</tspan></text>
+<rect x="994" y="393" width="192" height="74" rx="11" ry="11" fill="#16a34a" stroke="#0b0f1a" stroke-width="1.5"/>
+<text text-anchor="middle" fill="#ffffff" font-size="12.5" font-family="Segoe UI, system-ui, sans-serif"><tspan x="1090" y="411" font-weight="700">Within-Japan</tspan><tspan x="1090" dy="16" font-weight="500">remoteness exposure</tspan><tspan x="1090" dy="16" font-weight="500">(photo-wtd mean</tspan><tspan x="1090" dy="16" font-weight="500">cell remoteness)</tspan></text>
+</svg>
+    <div class="legend"><span><i style="background:#2563eb"></i>Treatment</span><span><i style="background:#16a34a"></i>Outcome</span><span><i style="background:#dc2626"></i>Confounder (block)</span><span><i style="background:#d97706"></i>Mediator (do NOT adjust)</span><span><i style="background:#7c3aed"></i>Selection / collider (conditioned)</span><span><i style="background:#6b7280"></i>Measurement</span><span><i style="background:#0891b2"></i>Negative control</span></div>
+  </div>
+  <div class="card">
+    <h2>Identification strategy this DAG implies</h2>
+    <ul>
+      <li><span class="tag">Adjustment set = <code>origin region</code> + <code>trip_year</code>.</span>
+          These are the only true back-door confounders; they close
+          <code>HDI &larr; REGION &rarr; Y</code> and <code>HDI &larr; YEAR &rarr; Y</code>.</li>
+      <li><span class="tag">Region does double duty</span> &mdash; confounder <i>and</i> H3 effect-modifier.
+          Estimate <b>within-region HDI slopes (CATE by region)</b> rather than one pooled ATE: that blocks the
+          back-door <i>and</i> produces the heterogeneity headline.</li>
+      <li><span class="tag">Mediators stay open</span> (budget, independent travel, trip length, self-drive).
+          We want the <b>total</b> effect, so we do <b>not</b> condition on them. Corollary: GDPpc / LPI / UHC / WGI
+          are <b>alternative treatments</b>, run separately &mdash; never co-adjusted with HDI.</li>
+      <li><span class="tag">Selection collider cannot be closed.</span> The Flickr sample is fixed, so
+          <code>SAMPLE</code> is conditioned by construction, opening
+          <code>HDI &rarr; Flickr &rarr; [SAMPLE] &larr; REGION &rarr; Y</code>. Adjusting <code>region</code>
+          blocks its final leg; residual selection is probed by the <b>hour-of-day negative control</b>, an
+          <b>E-value</b>, and the <b>stated-vs-modal home-resolution agreement</b> check.</li>
+      <li><span class="tag">Design strength:</span> the remoteness yardstick (OSM POI density) is exogenous to
+          tourist behavior, and its error (rural under-mapping) is independent of origin HDI &rarr;
+          non-differential &rarr; attenuation toward null, not a spurious effect.</li>
+    </ul>
+    <p class="sub" style="margin-top:10px">Note: the outcome is photo-count weighted; because photo count is a
+    descendant of trip length (a mediator) and Flickr engagement, an unweighted per-cell outcome is run as a
+    sensitivity spec.</p>
+  </div>
+</div>
+</body></html>

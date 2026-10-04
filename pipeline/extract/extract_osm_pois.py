@@ -47,9 +47,10 @@ def pick_primary(tags) -> tuple[str, str] | None:
 
 
 class POIHandler(osmium.SimpleHandler):
-    def __init__(self) -> None:
+    def __init__(self, process_areas: bool = True) -> None:
         super().__init__()
         self.rows: list[tuple] = []
+        self.process_areas = process_areas
 
     def node(self, n) -> None:
         if not n.location.valid():
@@ -68,6 +69,8 @@ class POIHandler(osmium.SimpleHandler):
         ))
 
     def area(self, a) -> None:
+        if not self.process_areas:
+            return
         kv = pick_primary(a.tags)
         if kv is None:
             return
@@ -97,6 +100,14 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Extract OSM POIs to parquet.")
     p.add_argument("--pbf", required=True, type=Path, help="Input Geofabrik .osm.pbf")
     p.add_argument("--out", required=True, type=Path, help="Output parquet path")
+    p.add_argument("--index", default="flex_mem",
+                   help="pyosmium node-location index. 'flex_mem' (default, RAM) is fine for "
+                        "country extracts up to ~Georgia. For large files (e.g. Japan 2.3GB) on "
+                        "low-RAM machines, use a disk-backed index, e.g. "
+                        "'sparse_file_array,data/cache/nodecache.bin'.")
+    p.add_argument("--no-areas", action="store_true",
+                   help="Skip way/relation area POIs (nodes only). Much faster + lower memory; "
+                        "drops the ~8%% of POIs mapped as polygons (large malls, some hotels).")
     args = p.parse_args()
 
     if not args.pbf.exists():
@@ -104,10 +115,11 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
     size_mb = args.pbf.stat().st_size / 1e6
-    print(f"-> Reading {args.pbf} ({size_mb:.1f} MB)")
+    areas = not args.no_areas
+    print(f"-> Reading {args.pbf} ({size_mb:.1f} MB)  index={args.index}  areas={areas}")
     t0 = time.time()
-    h = POIHandler()
-    h.apply_file(str(args.pbf), locations=True)
+    h = POIHandler(process_areas=areas)
+    h.apply_file(str(args.pbf), locations=True, idx=args.index)
     print(f"   parsed in {time.time() - t0:.1f}s, {len(h.rows):,} POIs found")
 
     if not h.rows:
