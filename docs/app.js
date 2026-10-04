@@ -57,35 +57,30 @@
   const COL = {};
   REAL.cell_columns.forEach((c, i) => { COL[c] = i; });
 
-  // populations the map picker offers; pooled = LH + RG = everyone
+  // populations the map picker offers: pooled (= LH + RG = everyone,
+  // including the tiny 'Other' bucket) and the eight named origin regions.
+  const regionPop = (region, key, chip) => ({
+    key, chip, label: region, prefixes: [key],
+    color: REGION_COLORS[REGION_DOMAIN.indexOf(region)]
+  });
   const POPS = [
     { key: 'pooled', label: 'Pooled — all travelers', chip: 'Pooled',
       prefixes: ['LH', 'RG'], color: '#1A1A1A' },
-    { key: 'LH', label: 'Long-haul', chip: 'Long-haul',
-      prefixes: ['LH'], color: GROUP_COLORS['Long-haul'] },
-    { key: 'RG', label: 'Regional', chip: 'Regional',
-      prefixes: ['RG'], color: GROUP_COLORS['Regional'] },
-    { key: 'EU', label: 'Europe', chip: 'Europe',
-      prefixes: ['EU'], color: REGION_COLORS[REGION_DOMAIN.indexOf('Europe')] },
-    { key: 'EA', label: 'East Asia', chip: 'E Asia',
-      prefixes: ['EA'], color: REGION_COLORS[REGION_DOMAIN.indexOf('East Asia')] },
-    { key: 'SE', label: 'Southeast Asia', chip: 'SE Asia',
-      prefixes: ['SE'], color: REGION_COLORS[REGION_DOMAIN.indexOf('Southeast Asia')] },
-    { key: 'LA', label: 'Latin America', chip: 'Lat Am',
-      prefixes: ['LA'], color: REGION_COLORS[REGION_DOMAIN.indexOf('Latin America')] }
+    regionPop('Europe', 'EU', 'Europe'),
+    regionPop('North America', 'NA', 'N America'),
+    regionPop('East Asia', 'EA', 'E Asia'),
+    regionPop('Southeast Asia', 'SE', 'SE Asia'),
+    regionPop('Oceania', 'OC', 'Oceania'),
+    regionPop('Latin America', 'LA', 'Lat Am'),
+    regionPop('Mid-East & Africa', 'ME', 'ME & Africa'),
+    regionPop('South/Central Asia', 'SC', 'S/C Asia')
   ].filter(p => p.prefixes.every(x => COL[`${x}_Winter`] !== undefined));
 
-  // populations that OVERLAP (Europe ⊂ Long-haul, pooled ⊃ everything):
-  // ticking one auto-unticks these, so summed selections never double-count.
-  const OVERLAP = {
-    pooled: ['LH', 'RG', 'EU', 'EA', 'SE', 'LA'],
-    LH: ['pooled', 'EU', 'LA'],
-    RG: ['pooled', 'EA', 'SE'],
-    EU: ['pooled', 'LH'],
-    EA: ['pooled', 'RG'],
-    SE: ['pooled', 'RG'],
-    LA: ['pooled', 'LH']
-  };
+  // the regions are pairwise disjoint; only pooled overlaps them — ticking
+  // one side auto-unticks the other, so summed selections never double-count.
+  const REGION_KEYS = POPS.filter(p => p.key !== 'pooled').map(p => p.key);
+  const OVERLAP = { pooled: REGION_KEYS };
+  for (const k of REGION_KEYS) OVERLAP[k] = ['pooled'];
 
   function cellCount(row, prefixes, season) {
     let n = 0;
@@ -844,12 +839,12 @@
     const longhaul = createMap({
       mapId: 'map-longhaul', statId: 'stat-longhaul',
       labelId: 'label-longhaul', picksId: 'picks-longhaul',
-      takeId: 'take-longhaul', defaults: ['LH']
+      takeId: 'take-longhaul', defaults: ['EU']
     });
     const regional = createMap({
       mapId: 'map-regional', statId: 'stat-regional',
       labelId: 'label-regional', picksId: 'picks-regional',
-      takeId: 'take-regional', defaults: ['RG']
+      takeId: 'take-regional', defaults: ['EA']
     });
     mapHandles = { longhaul, regional };
 

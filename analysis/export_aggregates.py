@@ -124,33 +124,35 @@ def main() -> int:
         fill_value=0)
     pivot.columns = [f"{g}|{s}" for g, s in pivot.columns]
 
-    # per-gated-region counts for the map picker (still counts only — the
+    # per-origin-region counts for the map picker (still counts only — the
     # same aggregation as the group split, just at origin-region grain for
-    # the regions the recorded gate put in scope)
-    GATED_PREFIX = {"Europe": "EU", "East Asia": "EA",
-                    "Southeast Asia": "SE", "Latin America": "LA"}
-    gated = [r for r in sorted(RES["in_scope"]) if r in GATED_PREFIX]
-    rpivot = (cell_rows[cell_rows.region.isin(gated)]
+    # all eight named regions; 'Other' stays inside the LH/RG totals only)
+    REGION_PREFIX = {"Europe": "EU", "North America": "NA",
+                     "East Asia": "EA", "Southeast Asia": "SE",
+                     "Oceania": "OC", "Latin America": "LA",
+                     "Mid-East & Africa": "ME", "South/Central Asia": "SC"}
+    map_regions = list(REGION_PREFIX)
+    rpivot = (cell_rows[cell_rows.region.isin(map_regions)]
               .groupby(["h3_r6", "region", "season"]).n_photos.sum()
               .unstack(["region", "season"], fill_value=0))
-    rpivot = rpivot.reindex(columns=[(g, s) for g in gated for s in SEASONS],
+    rpivot = rpivot.reindex(columns=[(g, s) for g in map_regions for s in SEASONS],
                             fill_value=0)
     rpivot.columns = [f"{g}|{s}" for g, s in rpivot.columns]
 
     cells = (pivot.reset_index()
              .merge(rpivot.reset_index(), on="h3_r6", how="left")
              .merge(coords, on="h3_r6", how="left"))
-    for reg in gated:
+    for reg in map_regions:
         for s in SEASONS:
             cells[f"{reg}|{s}"] = cells[f"{reg}|{s}"].fillna(0)
     # compact arrays: [lat, lon, remoteness, LH W/Sp/Su/A, RG W/Sp/Su/A,
-    #                  then W/Sp/Su/A per gated region]
+    #                  then W/Sp/Su/A per named origin region]
     cell_arr = [
         [round(float(r["centroid_lat"]), 4), round(float(r["centroid_lon"]), 4),
          round(float(r["remoteness_norm"]), 4),
          *[int(r[f"Long-haul|{s}"]) for s in SEASONS],
          *[int(r[f"Regional|{s}"]) for s in SEASONS],
-         *[int(r[f"{reg}|{s}"]) for reg in gated for s in SEASONS]]
+         *[int(r[f"{reg}|{s}"]) for reg in map_regions for s in SEASONS]]
         for r in cells.to_dict("records")
     ]
 
@@ -243,7 +245,8 @@ def main() -> int:
         "battery": battery,
         "cell_columns": ["lat", "lon", "remoteness",
                          *[f"LH_{s}" for s in SEASONS], *[f"RG_{s}" for s in SEASONS],
-                         *[f"{GATED_PREFIX[reg]}_{s}" for reg in gated for s in SEASONS]],
+                         *[f"{REGION_PREFIX[reg]}_{s}" for reg in map_regions
+                           for s in SEASONS]],
         "cells": cell_arr,
     }
 

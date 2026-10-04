@@ -7,9 +7,10 @@ Eight-slide horizontal deck telling the study as a story in three acts:
    H2 status-good, H3 heterogeneous, H4 null), called before unblinding.
 3. **Act II · Explore** — twin photo-density heatmaps of Japan,
    season-filterable. Each map has checkbox chips to choose whose photos it
-   shows: Pooled (everyone), Long-haul, Regional, or any combination of the
-   four gated origin regions (Europe, East Asia, Southeast Asia, Latin
-   America); overlapping picks auto-untick so counts never double…
+   shows: Pooled (everyone) or any combination of the eight origin regions
+   (Europe, North America, East Asia, Southeast Asia, Oceania, Latin America,
+   Mid-East & Africa, South/Central Asia); pooled and the regions auto-untick
+   each other so counts never double. Defaults: Europe vs East Asia…
 4. …and mean off-path-ness by origin region — ending on the trap: those bars
    are confounded, not causal.
 5. **Act III · Identify** — the causal map (simplified DAG): why region + year
