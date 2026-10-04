@@ -122,7 +122,7 @@
   </section>
 
   <!-- ============ SLIDE 3: TWIN MAPS (Act II, full-bleed) ============ -->
-  <section class="slide slide-maps" aria-label="Slide 3: twin maps of Japan">
+  <section class="slide slide-maps" aria-label="Slide 3: photo-density map of Japan with origin-region picker">
     <div class="maps-toolbar">
       <div class="toolbar-left">
         <span class="slide-num inline">3 / 8 · ACT II — EXPLORE</span>
@@ -142,31 +142,18 @@
 
     <div class="maps-fullbleed">
       <div class="map-panel">
-        <div id="map-longhaul" class="map" role="img" aria-label="Japan map: long-haul travelers' photo density"></div>
+        <div id="map-main" class="map" role="img" aria-label="Japan map: photo density of the selected origin regions"></div>
         <div class="map-overlay map-overlay-tl">
-          <div class="overlay-label" id="label-longhaul"><span class="dot" style="background:#1F77B4"></span>Europe travelers</div>
-          <div class="overlay-picks" id="picks-longhaul" role="group" aria-label="Choose which travelers this map shows"></div>
-          <p class="overlay-takeaway" id="take-longhaul">
-            <span class="sent lead">The corridor, plus a thin western tail.</span>
-            <span class="sent">European mass concentrates on Tokyo–Kyoto–Osaka with the
-            Hiroshima–Miyajima extension and traces along the Nakasendō and Kanazawa —
-            but the periphery stays faint.</span>
+          <div class="overlay-label" id="label-main"><span class="dot" style="background:#1A1A1A"></span>Pooled — all travelers</div>
+          <div class="overlay-picks" id="picks-main" role="group" aria-label="Choose which travelers this map shows"></div>
+          <p class="overlay-takeaway" id="take-main">
+            <span class="sent lead">One corridor, two Japans.</span>
+            <span class="sent">Everyone together: mass piles onto Tokyo–Kyoto–Osaka with the
+            Hiroshima–Miyajima extension — while Hokkaido's ski country and Kyushu's
+            short-haul gateways glow from the regional flows. Tick a region chip to see
+            who drives which pattern.</span>
           </p>
-          <div class="overlay-stat" id="stat-longhaul">—</div>
-        </div>
-      </div>
-      <div class="map-panel">
-        <div id="map-regional" class="map" role="img" aria-label="Japan map: regional travelers' photo density"></div>
-        <div class="map-overlay map-overlay-tl">
-          <div class="overlay-label" id="label-regional"><span class="dot" style="background:#E15759"></span>East Asia travelers</div>
-          <div class="overlay-picks" id="picks-regional" role="group" aria-label="Choose which travelers this map shows"></div>
-          <p class="overlay-takeaway" id="take-regional">
-            <span class="sent lead">The corridor — and a second Japan.</span>
-            <span class="sent">East-Asian flows light the Golden Route too, but put visibly
-            more mass on Hokkaido (winter ski) and Kyushu's short-haul gateways than any
-            long-haul region registers.</span>
-          </p>
-          <div class="overlay-stat" id="stat-regional">—</div>
+          <div class="overlay-stat" id="stat-main">—</div>
         </div>
       </div>
     </div>

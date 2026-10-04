@@ -336,7 +336,7 @@ select:hover, select:focus {
 .maps-fullbleed {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0;
   min-height: 0;
   position: relative;
@@ -345,9 +345,7 @@ select:hover, select:focus {
   position: relative;
   overflow: hidden;
   min-height: 0;
-  border-right: 1px solid var(--rule);
 }
-.map-panel:last-child { border-right: none; }
 .map {
   width: 100%;
   height: 100%;
@@ -706,9 +704,6 @@ select:hover, select:focus {
 /* ============ Responsive ============ */
 @media (max-width: 900px) {
   .slide-inner { padding: 28px 22px calc(var(--nav-h) + 12px); }
-  .maps-fullbleed { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-  .map-panel { border-right: none; border-bottom: 1px solid var(--rule); }
-  .map-panel:last-child { border-bottom: none; }
   .map-overlay { max-width: 300px; padding: 14px 16px; }
   .map-overlay-tr { right: 14px; top: 56px; }
   .overlay-takeaway { font-size: clamp(15px, 2.4vw, 18px); }

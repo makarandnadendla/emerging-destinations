@@ -739,10 +739,7 @@
       const pct = slides.length > 1 ? (i / (slides.length - 1)) * 100 : 0;
       progress.style.width = pct + '%';
       if (slides[i] && slides[i].classList.contains('slide-maps') && mapHandles) {
-        setTimeout(() => {
-          mapHandles.longhaul.refit();
-          mapHandles.regional.refit();
-        }, 60);
+        setTimeout(() => mapHandles.main.refit(), 60);
       }
     }
 
@@ -821,8 +818,7 @@
       renderForest();
       renderHetero();
       if (mapHandles) {
-        mapHandles.longhaul.refit();
-        mapHandles.regional.refit();
+        mapHandles.main.refit();
       }
       if (deckHandles) {
         deckHandles.goTo(deckHandles.currentIndex());
@@ -836,26 +832,19 @@
     document.getElementById('trip-count').textContent =
       `${s.n_cohort.toLocaleString()} travelers · ${s.n_photos.toLocaleString()} photos`;
 
-    const longhaul = createMap({
-      mapId: 'map-longhaul', statId: 'stat-longhaul',
-      labelId: 'label-longhaul', picksId: 'picks-longhaul',
-      takeId: 'take-longhaul', defaults: ['EU']
+    const main = createMap({
+      mapId: 'map-main', statId: 'stat-main',
+      labelId: 'label-main', picksId: 'picks-main',
+      takeId: 'take-main', defaults: ['pooled']
     });
-    const regional = createMap({
-      mapId: 'map-regional', statId: 'stat-regional',
-      labelId: 'label-regional', picksId: 'picks-regional',
-      takeId: 'take-regional', defaults: ['EA']
-    });
-    mapHandles = { longhaul, regional };
+    mapHandles = { main };
 
     renderScatter();
     renderForest();
     renderHetero();
 
     document.getElementById('season-filter').addEventListener('change', (e) => {
-      const season = e.target.value;
-      longhaul.update(season);
-      regional.update(season);
+      main.update(e.target.value);
     });
 
     deckHandles = setupDeck(mapHandles);
